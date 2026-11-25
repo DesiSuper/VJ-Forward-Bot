@@ -69,7 +69,7 @@ class Db:
         self.database_name = database_name
         self._client: motor.motor_asyncio.AsyncIOMotorClient | None = None
         self.db = None
-        self.bot = self.userbot = self.col = self.nfy = self.chl = None
+        self.bot = self.userbot = self.col = self.nfy = self.chl = self.moderation = None
         if uri:
             self._open_client()
 
@@ -85,6 +85,7 @@ class Db:
         self.col = self.db.users
         self.nfy = self.db.notify
         self.chl = self.db.channels
+        self.moderation = self.db.moderation
 
     def _require_database(self) -> None:
         if self._client is None:
@@ -155,6 +156,40 @@ class Db:
         self._require_database()
         user = await self.col.find_one({"id": int(id)}, {"ban_status": 1})
         return (user or {}).get("ban_status", {"is_banned": False, "ban_reason": ""})
+
+    async def get_global_blacklist(self) -> dict[str, list[str]]:
+        """Get the shared blacklist applied to every group."""
+        self._require_database()
+        document = await self.moderation.find_one(
+            {"_id": "global_blacklist"}, {"words": 1, "urls": 1}
+        )
+        document = document or {}
+        return {
+            "words": list(document.get("words") or []),
+            "urls": list(document.get("urls") or []),
+        }
+
+    async def add_global_blacklist_entry(self, kind: str, value: str) -> None:
+        """Add one normalized word or URL pattern to the shared blacklist."""
+        self._require_database()
+        field = {"word": "words", "url": "urls"}.get(kind)
+        if field is None:
+            raise ValueError("kind must be 'word' or 'url'")
+        await self.moderation.update_one(
+            {"_id": "global_blacklist"},
+            {"$addToSet": {field: value}},
+            upsert=True,
+        )
+
+    async def remove_global_blacklist_entry(self, kind: str, value: str) -> None:
+        """Remove one normalized word or URL pattern from the shared blacklist."""
+        self._require_database()
+        field = {"word": "words", "url": "urls"}.get(kind)
+        if field is None:
+            raise ValueError("kind must be 'word' or 'url'")
+        await self.moderation.update_one(
+            {"_id": "global_blacklist"}, {"$pull": {field: value}}
+        )
 
     async def get_all_users(self):
         self._require_database()
