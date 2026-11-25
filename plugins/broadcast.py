@@ -20,25 +20,27 @@ logger.setLevel(logging.INFO)
 
 
 async def broadcast_messages(user_id, message):
-    try:
-        await message.copy(chat_id=user_id)
-        return True, "Success"
-    except FloodWait as e:
-        await asyncio.sleep(e.value)
-        return await broadcast_messages(user_id, message)
-    except InputUserDeactivated:
-        await db.delete_user(int(user_id))
-        logging.info(f"{user_id}-Removed from Database, since deleted account.")
-        return False, "Deleted"
-    except UserIsBlocked:
-        logging.info(f"{user_id} -Blocked the bot.")
-        return False, "Blocked"
-    except PeerIdInvalid:
-        await db.delete_user(int(user_id))
-        logging.info(f"{user_id} - PeerIdInvalid")
-        return False, "Error"
-    except Exception:
-        return False, "Error"
+    while True:
+        try:
+            await message.copy(chat_id=user_id)
+            return True, "Success"
+        except FloodWait as error:
+            await asyncio.sleep(error.value)
+        except InputUserDeactivated:
+            await db.delete_user(int(user_id))
+            logger.info("Removed %s from the database because the account is inactive", user_id)
+            return False, "Deleted"
+        except UserIsBlocked:
+            logger.info("User %s has blocked the bot", user_id)
+            return False, "Blocked"
+        except PeerIdInvalid:
+            # Invalid peer resolution can be transient or caused by stale
+            # access hashes; it does not prove that the user account is gone.
+            logger.info("Broadcast peer resolution failed for %s", user_id)
+            return False, "Error"
+        except Exception:
+            logger.exception("Broadcast delivery failed for %s", user_id)
+            return False, "Error"
 
 
 
@@ -80,8 +82,8 @@ async def verupikkals(bot, message):
             if not done % 20:
                 try:
                     await sts.edit(f"<b>Broadcast in progress</b>\n\nCompleted: <code>{done}/{total_users}</code>\nDelivered: <code>{success}</code>\nBlocked: <code>{blocked}</code>\nInactive: <code>{deleted}</code>\nFailed: <code>{failed}</code>")
-                except:
-                    pass
+                except Exception:
+                    logger.debug("Could not update broadcast progress for owner", exc_info=True)
 
     time_taken = datetime.timedelta(seconds=int(time.time()-start_time))
     await sts.edit(f"<b>Broadcast complete</b>\n\nDuration: <code>{time_taken}</code>\nCompleted: <code>{done}/{total_users}</code>\nDelivered: <code>{success}</code>\nBlocked: <code>{blocked}</code>\nInactive: <code>{deleted}</code>\nFailed: <code>{failed}</code>")

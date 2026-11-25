@@ -192,7 +192,7 @@ async def _remember_source_message_id(user_id, sources, source_id, message_id):
 def source_picker_markup(sources, destination_id):
     buttons = [
         [InlineKeyboardButton(
-            f"📚 {escape(str(source.get('title') or source['chat_id']))}",
+            f"📚 {str(source.get('title') or source['chat_id'])}",
             callback_data=f"choose_source#{destination_id}#{source['chat_id']}",
         )]
         for source in sources
@@ -211,7 +211,7 @@ def source_picker_markup(sources, destination_id):
 def source_manager_markup(sources, destination_id):
     buttons = [
         [InlineKeyboardButton(
-            f"🗑️ {escape(str(source.get('title') or source['chat_id']))}",
+            f"🗑️ {str(source.get('title') or source['chat_id'])}",
             callback_data=f"remove_source#{destination_id}#{source['chat_id']}",
         )]
         for source in sources

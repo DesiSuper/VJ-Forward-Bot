@@ -1,10 +1,9 @@
 
-import base64
+import logging
 import re
-import struct
+from html import escape
 
 from pyrogram import Client, enums, filters
-from pyrogram.file_id import FileId
 from pyrogram.types import InlineKeyboardMarkup
 
 from .ui import InlineKeyboardButton
@@ -18,6 +17,7 @@ from .prompts import ask as prompt_for_input
 from .utils import get_forwarded_chat
 
 CLIENT = CLIENT()
+logger = logging.getLogger(__name__)
 COMPLETED_BTN = InlineKeyboardMarkup(
     [[InlineKeyboardButton("✅ Done · Close", callback_data="close_btn")]]
 )
@@ -25,37 +25,6 @@ CANCEL_BTN = InlineKeyboardMarkup(
     [[InlineKeyboardButton("❌ Cancel cleanup", callback_data="cancel_unequify")]]
 )
 
-
-def encode_file_id(s: bytes) -> str:
-    r = b""
-    n = 0
-
-    for i in s + bytes([22]) + bytes([4]):
-        if i == 0:
-            n += 1
-        else:
-            if n:
-                r += b"\x00" + bytes([n])
-                n = 0
-
-            r += bytes([i])
-
-    return base64.urlsafe_b64encode(r).decode().rstrip("=")
-
-
-def unpack_new_file_id(new_file_id):
-    """Return file_id"""
-    decoded = FileId.decode(new_file_id)
-    file_id = encode_file_id(
-        struct.pack(
-            "<iiqq",
-            int(decoded.file_type),
-            decoded.dc_id,
-            decoded.media_id,
-            decoded.access_hash
-        )
-    )
-    return file_id
 
 
 @Client.on_callback_query(filters.regex(r"^cancel_unequify$"))
@@ -74,43 +43,56 @@ async def unequify(client, message):
    if not _bot:
       return await message.reply("<b>A user account is required for duplicate cleanup.</b> Connect one in <code>/settings → Accounts</code>.")
    target = await prompt_for_input(client, user_id, text="<b>Choose a chat to scan</b>\nForward its latest message or send a link to that message.\nSend <code>/cancel</code> to stop.")
-   if target.text and target.text.startswith("/"):
-      return await message.reply("<b>Cleanup cancelled.</b>")
-   elif target.text:
-      regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
-      match = regex.match(target.text.replace("?single", ""))
-      if not match:
-         return await message.reply('<b>That message link is invalid.</b> Please try again.')
-      chat_id = match.group(4)
-      if chat_id.isnumeric():
-         chat_id  = int("-100" + chat_id)
-   elif (forwarded_chat := get_forwarded_chat(target)) and forwarded_chat.type in {
+   forwarded_chat = get_forwarded_chat(target)
+   if forwarded_chat and forwarded_chat.type in {
         enums.ChatType.CHANNEL,
         enums.ChatType.GROUP,
         enums.ChatType.SUPERGROUP,
         enums.ChatType.FORUM,
    }:
         chat_id = forwarded_chat.username or forwarded_chat.id
+   elif getattr(target, "text", None):
+      target_text = target.text.strip()
+      if target_text.lower() in {"/cancel", "/no"}:
+         return await message.reply("<b>Cleanup cancelled.</b>")
+      regex = re.compile(r"(?:https://)?(?:t\.me/|telegram\.me/|telegram\.dog/)(?:c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)(?:\?single)?$")
+      match = regex.fullmatch(target_text)
+      if not match:
+         return await message.reply('<b>That message link is invalid.</b> Please try again.')
+      chat_id = match.group(1)
+      if chat_id.isnumeric():
+         chat_id = int("-100" + chat_id)
    else:
-        return await message.reply_text("<b>Could not identify the chat.</b> Forward a message from it or send a message link.")
+      return await message.reply_text("<b>Could not identify the chat.</b> Forward a message from it or send a message link.")
    confirm = await prompt_for_input(client, user_id, text="<b>Confirm duplicate cleanup</b>\nThis will delete duplicate documents from the selected chat. Send <code>/yes</code> to continue or <code>/no</code> to cancel.")
-   if confirm.text.lower() == '/no':
+   confirmation = (getattr(confirm, "text", None) or "").strip().lower()
+   if confirmation in {"/no", "/cancel"}:
       return await confirm.reply("<b>Cleanup cancelled.</b>")
+   if confirmation != "/yes":
+      return await confirm.reply("<b>Cleanup not started.</b> Send <code>/yes</code> to confirm or <code>/no</code> to cancel.")
    sts = await confirm.reply("<b>Scanning for duplicate documents…</b>")
    il = False
    data = _bot['session']
+   bot = None
    try:
       bot = await get_client(data, is_bot=il)
       await bot.start()
    except Exception as e:
-      return await sts.edit(e)
+      if bot is not None:
+         try:
+            await bot.stop()
+         except Exception:
+            logger.debug("Failed to stop an incompletely started cleanup client", exc_info=True)
+      return await sts.edit(
+          f"<b>Could not start the connected account:</b> <code>{escape(str(e))}</code>"
+      )
    try:
        k = await bot.send_message(chat_id, text="testing")
        await k.delete()
-   except:
+   except Exception:
        await sts.edit("<b>Can't post to this chat.</b> Give the connected account permission to send and delete messages.")
        return await bot.stop()
-   MESSAGES = []
+   MESSAGES = set()
    DUPLICATE = []
    total=deleted=0
    temp.lock[user_id] = True
@@ -120,15 +102,16 @@ async def unequify(client, message):
      async for message in bot.search_messages(chat_id=chat_id, filter=enums.MessagesFilter.DOCUMENT):
         if temp.CANCEL.get(user_id) == True:
            temp.lock[user_id] = False
+           temp.CANCEL.pop(user_id, None)
            await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "Cancelled"), reply_markup=COMPLETED_BTN)
            await bot.stop()
            return
         file = message.document
-        file_id = unpack_new_file_id(file.file_id)
+        file_id = file.file_unique_id
         if file_id in MESSAGES:
            DUPLICATE.append(message.id)
         else:
-           MESSAGES.append(file_id)
+           MESSAGES.add(file_id)
         total += 1
         if total %1000 == 0:
            await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "Working"), reply_markup=CANCEL_BTN)
@@ -142,8 +125,10 @@ async def unequify(client, message):
         deleted += len(DUPLICATE)
    except Exception as e:
        temp.lock[user_id] = False
-       await sts.edit(f"<b>Cleanup failed:</b>\n<code>{e}</code>")
+       temp.CANCEL.pop(user_id, None)
+       await sts.edit(f"<b>Cleanup failed:</b>\n<code>{escape(str(e))}</code>")
        return await bot.stop()
    temp.lock[user_id] = False
+   temp.CANCEL.pop(user_id, None)
    await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "Complete"), reply_markup=COMPLETED_BTN)
    await bot.stop()

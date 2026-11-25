@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import time
+from html import escape
 
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait, MessageNotModified
@@ -18,7 +19,7 @@ from messages import Script
 from .clients import CLIENT, get_client, iter_messages
 from .db import connect_user_db
 from .media_filters import extension_filter, keyword_filter, size_filter
-from .utils import STS
+from .utils import STATUS, STS
 
 CLIENT = CLIENT()
 logger = logging.getLogger(__name__)
@@ -26,24 +27,21 @@ logger.setLevel(logging.INFO)
 TEXT = Script.TEXT
 _PROGRESS_EDIT_INTERVAL = 5.0
 _LAST_PROGRESS_EDIT: dict[tuple[int, int], float] = {}
-PROGRESS = (
-    "<b>Forwarding task</b>\n\n"
-    "<b>Progress:</b> <code>{}%</code>\n"
-    "<b>Scanned:</b> <code>{}</code>\n"
-    "<b>Forwarded:</b> <code>{}</code>\n"
-    "<b>Videos:</b> <code>{}</code>\n"
-    "<b>Images:</b> <code>{}</code>\n"
-    "<b>Remaining:</b> <code>{}</code>\n"
-    "<b>Status:</b> <code>{}</code>\n"
-    "<b>Estimated remaining:</b> <code>{}</code>\n"
-    "<b>Elapsed:</b> <code>{}</code>"
-)
 
 
 async def pause_between_messages(gap, default_delay):
     delay = choose_random_gap(gap, default_delay)
     if delay > 0:
         await asyncio.sleep(delay)
+
+
+async def close_optional_db(user_db):
+    if user_db is None:
+        return
+    try:
+        await user_db.close()
+    except Exception:
+        logger.warning("Could not close optional duplicate database", exc_info=True)
 
 
 def media_counter_key(message):
@@ -113,6 +111,9 @@ async def forward_source_messages(
         if source_message == "FILTERED":
             task.add("filtered")
             continue
+        if source_message == "DELETED":
+            task.add("deleted")
+            continue
         if source_message.empty or source_message.service:
             task.add("deleted")
             continue
@@ -135,20 +136,28 @@ async def forward_source_messages(
         ):
             task.add("filtered")
             continue
-        if document and document.file_id in known_duplicates:
+        unique_key = ("unique", document.file_unique_id) if document and document.file_unique_id else None
+        legacy_key = ("legacy", document.file_id) if document else None
+        if document and (
+            (unique_key is not None and unique_key in known_duplicates)
+            or legacy_key in known_duplicates
+        ):
             task.add("duplicate")
             continue
-        if document and options["skip_duplicate"]:
+        if document and options["skip_duplicate"] and unique_key is not None:
             # Keep same-task duplicate detection in memory; persist only after send succeeds.
-            known_duplicates.append(document.file_id)
+            if isinstance(known_duplicates, set):
+                known_duplicates.add(unique_key)
+            else:
+                known_duplicates.append(unique_key)
 
         if forward_tag:
             pending_message_ids.append(source_message.id)
             pending_media_counts.append(media_kind)
-            if document and options["skip_duplicate"]:
-                pending_file_ids.append(document.file_id)
+            if document and options["skip_duplicate"] and document.file_unique_id:
+                pending_file_ids.append(document.file_unique_id)
             remaining = task.get("total") - task.get("fetched")
-            if len(pending_message_ids) >= batch_size or remaining <= batch_size:
+            if len(pending_message_ids) >= batch_size or remaining <= 0:
                 batch_count = len(pending_message_ids)
                 forwarded = await forward(
                     user_id, client, pending_message_ids, progress_message, task, protect
@@ -159,11 +168,19 @@ async def forward_source_messages(
                         if media_type:
                             task.add(media_type)
                     if user_db:
-                        for file_id in pending_file_ids:
-                            await user_db.add_file(file_id)
+                        for file_unique_id in pending_file_ids:
+                            await user_db.add_file(file_unique_id)
                     await pause_between_messages(random_gap, default_delay)
                 else:
                     task.add("deleted", batch_count)
+                    if isinstance(known_duplicates, set):
+                        known_duplicates.difference_update(("unique", file_id) for file_id in pending_file_ids)
+                    else:
+                        pending_keys = {("unique", file_id) for file_id in pending_file_ids}
+                        known_duplicates[:] = [
+                            file_id for file_id in known_duplicates
+                            if file_id not in pending_keys
+                        ]
                 pending_message_ids.clear()
                 pending_file_ids.clear()
                 pending_media_counts.clear()
@@ -181,9 +198,41 @@ async def forward_source_messages(
             task.add("total_files")
             if media_kind:
                 task.add(media_kind)
-            if document and options["skip_duplicate"] and user_db:
-                await user_db.add_file(document.file_id)
+            if document and options["skip_duplicate"] and user_db and document.file_unique_id:
+                await user_db.add_file(document.file_unique_id)
             await pause_between_messages(random_gap, default_delay)
+        elif document and options["skip_duplicate"] and document.file_unique_id:
+            if isinstance(known_duplicates, set):
+                known_duplicates.discard(unique_key)
+            elif unique_key in known_duplicates:
+                known_duplicates.remove(unique_key)
+
+    # Flush a final partial forward-tag batch even if the source yielded fewer
+    # messages than the saved task limit predicted.
+    if pending_message_ids:
+        batch_count = len(pending_message_ids)
+        forwarded = await forward(
+            user_id, client, pending_message_ids, progress_message, task, protect
+        )
+        if forwarded:
+            task.add("total_files", batch_count)
+            for media_type in pending_media_counts:
+                if media_type:
+                    task.add(media_type)
+            if user_db:
+                for file_unique_id in pending_file_ids:
+                    await user_db.add_file(file_unique_id)
+            await pause_between_messages(random_gap, default_delay)
+        else:
+            task.add("deleted", batch_count)
+            if isinstance(known_duplicates, set):
+                known_duplicates.difference_update(("unique", file_id) for file_id in pending_file_ids)
+            else:
+                pending_keys = {("unique", file_id) for file_id in pending_file_ids}
+                known_duplicates[:] = [
+                    file_id for file_id in known_duplicates
+                    if file_id not in pending_keys
+                ]
 
     return True
 
@@ -259,6 +308,7 @@ async def cancel_forwarding_review(bot, query):
     forward_id = query.data.split("_", 2)[2]
     if PENDING_REVIEW.get(user) == forward_id:
         PENDING_REVIEW.pop(user, None)
+    STATUS.pop(forward_id, None)
     await query.answer("Forward setup cancelled.")
     await query.message.delete()
 
@@ -289,6 +339,7 @@ async def pub_(bot, message):
       temp.lock[user] = False
       if i.TO in temp.IS_FRWD_CHAT:
           temp.IS_FRWD_CHAT.remove(i.TO)
+      STATUS.pop(frwd_id, None)
       return await msg_edit(m, "<b>No forwarding account is connected.</b> Add one in <code>/settings</code> to continue.", wait=True)
     if _bot['is_bot'] == True:
         data = _bot['token']
@@ -308,17 +359,20 @@ async def pub_(bot, message):
       temp.lock[user] = False
       if i.TO in temp.IS_FRWD_CHAT:
           temp.IS_FRWD_CHAT.remove(i.TO)
+      STATUS.pop(frwd_id, None)
       return await msg_edit(m, "<b>Could not start the saved forwarding account.</b> Check its token/session in Settings.", wait=True)
     await msg_edit(m, "<b>Checking chat access…</b>")
     try:
        await client.get_messages(sts.get("FROM"), sts.get("limit"))
-    except:
+    except Exception:
+       logger.info("Forwarding source access check failed for user %s", user, exc_info=True)
        await msg_edit(m, "<b>Can't access the source chat.</b> Make sure the connected account is a member, or has the required admin permission.", retry_btn(frwd_id), True)
        return await stop(client, user, counted=False, destination=i.TO)
     try:
        k = await client.send_message(i.TO, "Testing")
        await k.delete()
-    except:
+    except Exception:
+       logger.info("Forwarding destination access check failed for user %s", user, exc_info=True)
        await msg_edit(m, "<b>Can't post to the destination.</b> Give the connected account permission to send messages there.", retry_btn(frwd_id), True)
        return await stop(client, user, counted=False, destination=i.TO)
     user_have_db = False
@@ -330,16 +384,27 @@ async def pub_(bot, message):
         else:
             user_have_db = True
     temp.forwardings += 1
-    await db.add_frwd(user)
-    await send(client, user, "<b>Forwarding started.</b>")
-    sts.add(time=True)
-    sleep = 1 if _bot['is_bot'] else 10
-    await msg_edit(m, "<b>Forwarding messages…</b>")
-    dup_files = []
-    if user_have_db and datas["skip_duplicate"]:
-        async for old_file in user_db.get_all_files():
-            dup_files.append(old_file["file_id"])
     try:
+        await db.add_frwd(user)
+        await send(client, user, "<b>Forwarding started.</b>")
+        sts.add(time=True)
+        sleep = 1 if _bot['is_bot'] else 10
+        await msg_edit(m, "<b>Forwarding messages…</b>")
+    except Exception as error:
+        logger.exception("Could not initialize forwarding task for user %s", user)
+        STATUS.pop(sts.id, None)
+        if user_have_db:
+            await close_optional_db(user_db)
+        await stop(client, user, destination=i.TO)
+        return await msg_edit(m, f"<b>Could not initialize forwarding:</b> <code>{escape(str(error))}</code>", wait=True)
+    try:
+        dup_files = set()
+        if user_have_db and datas["skip_duplicate"]:
+            async for old_file in await user_db.get_all_files():
+                if old_file.get("file_unique_id"):
+                    dup_files.add(("unique", old_file["file_unique_id"]))
+                elif old_file.get("file_id"):
+                    dup_files.add(("legacy", old_file["file_id"]))
         await edit(user, m, "Working", 5, sts)
         completed = await forward_source_messages(
             user,
@@ -359,20 +424,28 @@ async def pub_(bot, message):
         )
         if not completed:
             if user_have_db:
-                await user_db.close()
+                await close_optional_db(user_db)
             return
     except Exception as error:
         logger.exception("Forwarding task failed for user %s", user)
-        await msg_edit(m, f"<b>Forwarding failed:</b>\n<code>{error}</code>", wait=True)
+        _LAST_PROGRESS_EDIT.pop((user, m.id), None)
+        STATUS.pop(sts.id, None)
         if user_have_db:
-            await user_db.close()
-        return await stop(client, user, destination=sts.TO)
+            await close_optional_db(user_db)
+        await stop(client, user, destination=sts.TO)
+        return await msg_edit(m, f"<b>Forwarding failed:</b>\n<code>{escape(str(error))}</code>", wait=True)
 
     await send(client, user, "<b>✓ Forwarding complete.</b>")
-    await edit(user, m, "Complete", "completed", sts)
-    if user_have_db:
-        await user_db.close()
-    await stop(client, user, destination=sts.TO)
+    try:
+        await edit(user, m, "Complete", "completed", sts)
+    except Exception:
+        logger.exception("Could not render completed forwarding state for user %s", user)
+        _LAST_PROGRESS_EDIT.pop((user, m.id), None)
+        STATUS.pop(sts.id, None)
+    finally:
+        if user_have_db:
+            await close_optional_db(user_db)
+        await stop(client, user, destination=sts.TO)
 
 
 
@@ -498,6 +571,7 @@ async def edit(user, msg, title, status, sts):
    await msg_edit(msg, text, InlineKeyboardMarkup(buttons))
    if terminal:
       _LAST_PROGRESS_EDIT.pop(key, None)
+      STATUS.pop(sts.id, None)
 
 
 async def is_cancelled(client, user, msg, sts):
@@ -516,19 +590,24 @@ async def stop(client, user, counted=True, destination=None):
      await client.stop()
    except Exception:
      logger.debug("Forwarding client cleanup failed for user %s", user, exc_info=True)
-   await db.rmve_frwd(user)
-   if counted:
-       temp.forwardings = max(0, temp.forwardings - 1)
-   if destination in temp.IS_FRWD_CHAT:
-       temp.IS_FRWD_CHAT.remove(destination)
-   temp.lock[user] = False
+   try:
+       await db.rmve_frwd(user)
+   except Exception:
+       logger.exception("Could not remove forwarding state for user %s", user)
+   finally:
+       if counted:
+           temp.forwardings = max(0, temp.forwardings - 1)
+       if destination in temp.IS_FRWD_CHAT:
+           temp.IS_FRWD_CHAT.remove(destination)
+       temp.lock[user] = False
+       temp.CANCEL.pop(user, None)
 
 
 async def send(bot, user, text):
    try:
       await bot.send_message(user, text=text)
-   except:
-      pass
+   except Exception:
+      logger.debug("Could not send a forwarding notification to user %s", user, exc_info=True)
 
 
 def custom_caption(msg, caption):
@@ -542,7 +621,7 @@ def custom_caption(msg, caption):
         if fcaption:
           fcaption = fcaption.html
         if caption:
-          return caption.format(filename=file_name, size=get_size(file_size), caption=fcaption)
+          return caption.format(filename=escape(str(file_name)), size=get_size(file_size), caption=fcaption)
         return fcaption
   return None
 
@@ -588,36 +667,6 @@ async def terminate_frwding(bot, m):
     user_id = m.from_user.id
     temp.CANCEL[user_id] = True
     await m.answer("Cancellation requested. The current message will finish first.", show_alert=True)
-
-
-@Client.on_callback_query(filters.regex(r'^fwrdstatus'))
-async def status_msg(bot, msg):
-    _, status, est_time, percentage, frwd_id = msg.data.split("#")
-    sts = STS(frwd_id)
-    if not sts.verify():
-        return await msg.answer("This task status has expired.", show_alert=True)
-    fetched = sts.get("fetched")
-    limit = sts.get("limit")
-    forwarded = sts.get("total_files")
-    remaining = max(0, limit - fetched)
-    estimated_remaining = TimeFormatter(milliseconds=int(est_time)) or "0s"
-    if status in {"completed", "cancelled"}:
-        estimated_remaining = "0s"
-    elapsed = await get_bot_uptime(sts.get("start"))
-    return await msg.answer(
-        PROGRESS.format(
-            percentage,
-            fetched,
-            forwarded,
-            sts.get("videos"),
-            sts.get("photos"),
-            remaining,
-            status,
-            estimated_remaining,
-            elapsed,
-        ),
-        show_alert=True,
-    )
 
 
 @Client.on_callback_query(filters.regex(r'^close_btn$'))
@@ -698,19 +747,29 @@ async def restart_pending_forwads(bot, user):
           return await db.rmve_frwd(user)
        try:
           await client.get_messages(sts.get("FROM"), sts.get("limit"))
-       except:
+       except Exception:
+          logger.info("Resumed forwarding source access check failed for user %s", user, exc_info=True)
           await msg_edit(m, "<b>Can't access the source chat.</b> Make sure the connected account is a member, or has the required admin permission.", retry_btn(forward_id), True)
           return await stop(client, user, destination=i.TO)
        try:
           k = await client.send_message(i.TO, "Testing")
           await k.delete()
-       except:
+       except Exception:
+          logger.info("Resumed forwarding destination access check failed for user %s", user, exc_info=True)
           await msg_edit(m, "<b>Can't post to the destination.</b> Give the connected account permission to send messages there.", retry_btn(forward_id), True)
           return await stop(client, user, destination=i.TO)
     except Exception:
+       logger.exception("Could not restore pending forwarding task for user %s", user)
        if counted:
            temp.forwardings = max(0, temp.forwardings - 1)
-       await db.rmve_frwd(user)
+       if "forward_id" in locals():
+           STATUS.pop(forward_id, None)
+       if "m" in locals() and m is not None:
+           _LAST_PROGRESS_EDIT.pop((user, m.id), None)
+       try:
+           await db.rmve_frwd(user)
+       except Exception:
+           logger.exception("Could not clear failed pending forwarding state for user %s", user)
        return
     user_have_db = False
     dburi = datas['db_uri']
@@ -729,12 +788,14 @@ async def restart_pending_forwads(bot, user):
     #await msg_edit(m, "<b>Forwarding messages…</b>")
     temp.IS_FRWD_CHAT.append(i.TO)
     temp.lock[user] = True
-    dup_files = []
-    if user_have_db and datas["skip_duplicate"]:
-        old_files = user_db.get_all_files()
-        async for old_file in old_files:
-            dup_files.append(old_file["file_id"])
     try:
+        dup_files = set()
+        if user_have_db and datas["skip_duplicate"]:
+            async for old_file in await user_db.get_all_files():
+                if old_file.get("file_unique_id"):
+                    dup_files.add(("unique", old_file["file_unique_id"]))
+                elif old_file.get("file_id"):
+                    dup_files.add(("legacy", old_file["file_id"]))
         await edit(user, m, "Working", 5, sts)
         completed = await forward_source_messages(
             user,
@@ -754,20 +815,28 @@ async def restart_pending_forwads(bot, user):
         )
         if not completed:
             if user_have_db:
-                await user_db.close()
+                await close_optional_db(user_db)
             return
     except Exception as error:
         logger.exception("Resumed forwarding task failed for user %s", user)
-        await msg_edit(m, f"<b>Forwarding failed:</b>\n<code>{error}</code>", wait=True)
+        _LAST_PROGRESS_EDIT.pop((user, m.id), None)
+        STATUS.pop(sts.id, None)
         if user_have_db:
-            await user_db.close()
-        return await stop(client, user, destination=sts.TO)
+            await close_optional_db(user_db)
+        await stop(client, user, destination=sts.TO)
+        return await msg_edit(m, f"<b>Forwarding failed:</b>\n<code>{escape(str(error))}</code>", wait=True)
 
     await send(client, user, "<b>✓ Forwarding complete.</b>")
-    if user_have_db:
-        await user_db.close()
-    await edit(user, m, "Complete", "completed", sts)
-    await stop(client, user, destination=sts.TO)
+    try:
+        await edit(user, m, "Complete", "completed", sts)
+    except Exception:
+        logger.exception("Could not render completed resumed task for user %s", user)
+        _LAST_PROGRESS_EDIT.pop((user, m.id), None)
+        STATUS.pop(sts.id, None)
+    finally:
+        if user_have_db:
+            await close_optional_db(user_db)
+        await stop(client, user, destination=sts.TO)
 
 
 
@@ -775,7 +844,7 @@ async def store_vars(user_id):
     settings = await db.get_forward_details(user_id)
     fetch = settings['fetched']
     forward_id = f'{user_id}-{fetch}'
-    STS(id=forward_id).store(settings['chat_id'], settings['toid'], settings['skip'], settings['limit'])
+    STS(forward_id).store(settings['chat_id'], settings['toid'], settings['skip'], settings['limit'])
     return forward_id
 
 
@@ -823,23 +892,3 @@ async def update_forward(
         'filtered':filterd
     }
     await db.update_forward(user_id, details)
-
-
-async def get_bot_uptime(start_time):
-    # Calculate the uptime in seconds
-    uptime_seconds = int(time.time() - start_time)
-    uptime_minutes = uptime_seconds // 60
-    uptime_hours = uptime_minutes // 60
-    uptime_days = uptime_hours // 24
-    uptime_weeks = uptime_days // 7
-    uptime_string = ""
-    if uptime_weeks != 0:
-        uptime_string += f"{uptime_weeks % 7}w, "
-    if uptime_days != 0:
-        uptime_string += f"{uptime_days % 24}d, "
-    if uptime_hours != 0:
-        uptime_string += f"{uptime_hours % 24}h, "
-    if uptime_minutes != 0:
-        uptime_string += f"{uptime_minutes % 60}m, "
-    uptime_string += f"{uptime_seconds % 60}s"
-    return uptime_string

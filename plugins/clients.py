@@ -2,6 +2,8 @@
 import asyncio
 import logging
 import re
+from copy import deepcopy
+from html import escape
 from collections.abc import AsyncGenerator
 
 from pyrogram import Client, filters
@@ -15,7 +17,7 @@ from pyrogram.errors import (
 from pyrogram.types import Message
 
 from config import Config
-from database import db
+from database import DEFAULT_CONFIG, db
 from .prompts import ask as prompt_for_input
 
 logger = logging.getLogger(__name__)
@@ -191,9 +193,8 @@ class CLIENT:
 
 
 @Client.on_message(filters.private & filters.command('reset'))
-async def forward_tag(bot, m):
-   default = await db.get_configs("01")
-   await db.update_configs(m.from_user.id, default)
+async def reset_settings(bot, m):
+   await db.update_configs(m.from_user.id, deepcopy(DEFAULT_CONFIG))
    await m.reply("<b>✓ Your settings have been reset.</b>")
 
 
@@ -202,24 +203,25 @@ async def resetall(bot, message):
   users = await db.get_all_users()
   sts = await message.reply("<b>Resetting user settings…</b>")
   TEXT = "<b>Reset progress</b>\n\nProcessed: <code>{}</code>\nUpdated: <code>{}</code>\nFailed: <code>{}</code>"
-  total = success = failed = already = 0
-  ERRORS = []
+  total = success = failed = 0
+  errors = []
   async for user in users:
-      user_id = user['id']
-      default = await get_configs(user_id)
-      default['db_uri'] = None
+      user_id = user.get('id')
       total += 1
-      if total %10 == 0:
-         await sts.edit(TEXT.format(total, success, failed, already))
-      try:
-         await db.update_configs(user_id, default)
-         success += 1
-      except Exception as e:
-         ERRORS.append(e)
+      if user_id is None:
          failed += 1
-  if ERRORS:
-     await message.reply(ERRORS[:100])
-  await sts.edit("<b>Settings reset complete.</b>\n\n" + TEXT.format(total, success, failed, already))
+      else:
+         try:
+            await db.update_configs(user_id, deepcopy(DEFAULT_CONFIG))
+            success += 1
+         except Exception as error:
+            errors.append(f"{user_id}: {escape(str(error))}")
+            failed += 1
+      if total % 10 == 0:
+         await sts.edit(TEXT.format(total, success, failed))
+  if errors:
+     await message.reply("<b>Some settings could not be reset:</b>\n" + "\n".join(f"<code>{error}</code>" for error in errors[:20]))
+  await sts.edit("<b>Settings reset complete.</b>\n\n" + TEXT.format(total, success, failed))
 
 
 async def get_configs(user_id):
@@ -246,19 +248,22 @@ async def iter_messages(
     filters: dict = None,
     max_size: int = None,
 ) -> AsyncGenerator[Message | str, None]:
-        current = offset
-        while True:
-            new_diff = min(200, limit - current)
-            if new_diff <= 0:
-                return
-
-            messages = await self.get_messages(chat_id, list(range(current, current + new_diff + 1)))
+        # ``limit`` is the latest source message ID and ``offset`` is the
+        # number of messages already skipped/fetched. Telegram message IDs are
+        # one-based, so the first ID to inspect is offset + 1.
+        current = max(1, int(offset) + 1)
+        limit = int(limit)
+        while current <= limit:
+            new_diff = min(200, limit - current + 1)
+            message_ids = list(range(current, current + new_diff))
+            messages = await self.get_messages(chat_id, message_ids)
             for message in messages:
-                if any(getattr(message, media_type, False) for media_type in filters):
+                if message is None:
+                    yield "DELETED"
+                elif any(getattr(message, media_type, False) for media_type in (filters or {})):
                     yield "FILTERED"
                 else:
                     yield message
-
                 current += 1
 
 

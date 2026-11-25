@@ -1,7 +1,9 @@
 
 import asyncio
 import logging
+from string import Formatter
 from html import escape
+from urllib.parse import urlsplit
 
 from pyrogram import Client, enums, filters
 from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
@@ -21,6 +23,30 @@ from .utils import get_forward_origin, get_forwarded_chat
 
 CLIENT = CLIENT()
 logger = logging.getLogger(__name__)
+
+
+def validate_caption_template(template: str) -> None:
+    """Allow only the documented named placeholders in caption templates."""
+    allowed_fields = {"filename", "size", "caption"}
+    for _, field_name, format_spec, conversion in Formatter().parse(template):
+        if field_name is not None and (
+            field_name not in allowed_fields or format_spec or conversion
+        ):
+            raise ValueError("Use only {filename}, {size}, and {caption} fields.")
+    template.format(filename="", size="", caption="")
+
+
+def mongo_uri_summary(uri: str | None) -> str:
+    """Show the host/path without credentials or query-string secrets."""
+    try:
+        parsed_uri = urlsplit(uri or "")
+        hostname = parsed_uri.hostname or "saved MongoDB host"
+        port = parsed_uri.port
+    except ValueError:
+        return "saved MongoDB host (URI needs correction)"
+    address = f"{hostname}:{port}" if port else hostname
+    scheme = parsed_uri.scheme if parsed_uri.scheme in {"mongodb", "mongodb+srv"} else "mongodb"
+    return f"{scheme}://{address}{parsed_uri.path}"
 
 
 @Client.on_message(filters.private & filters.command('settings'))
@@ -183,7 +209,7 @@ async def settings_query(bot, query):
      buttons = []
      channels = await db.get_user_channels(user_id)
      for channel in channels:
-        buttons.append([InlineKeyboardButton(f"📣 {escape(str(channel['title']))}",
+        buttons.append([InlineKeyboardButton(f"📣 {str(channel['title'])}",
                          callback_data=f"settings#editchannels_{channel['chat_id']}")])
      buttons.append([InlineKeyboardButton('➕ Add destination', callback_data="settings#addchannel")])
      buttons.append([InlineKeyboardButton('⬅️ Back to channels', callback_data="settings#channels")])
@@ -196,7 +222,7 @@ async def settings_query(bot, query):
      sources = (await get_configs(user_id)).get("sources") or []
      buttons = [
          [InlineKeyboardButton(
-             f"📤 {escape(str(source.get('title') or source['chat_id']))}",
+             f"📤 {str(source.get('title') or source['chat_id'])}",
              callback_data=f"settings#editsource_{source['chat_id']}",
          )]
          for source in sources
@@ -371,7 +397,7 @@ async def settings_query(bot, query):
          [InlineKeyboardButton('⬅️ Back', callback_data="settings#destinations")],
      ]
      await query.message.edit_text(
-        f"<b>📣 Destination details</b>\n\n<b>Name:</b> <code>{chat['title']}</code>\n<b>Chat ID:</b> <code>{chat['chat_id']}</code>\n<b>Username:</b> {chat['username']}",
+        f"<b>📣 Destination details</b>\n\n<b>Name:</b> <code>{escape(str(chat['title']))}</code>\n<b>Chat ID:</b> <code>{escape(str(chat['chat_id']))}</code>\n<b>Username:</b> {escape(str(chat['username'] or 'None'))}",
         reply_markup=InlineKeyboardMarkup(buttons))
 
   elif type.startswith("changechannel_"):
@@ -472,7 +498,7 @@ async def settings_query(bot, query):
                InlineKeyboardButton('⬅️ Back',
                  callback_data="settings#caption")]]
      await query.message.edit_text(
-        f"<b>Saved caption</b>\n\n<code>{data['caption']}</code>",
+        f"<b>Saved caption</b>\n\n<code>{escape(str(data['caption']))}</code>",
         reply_markup=InlineKeyboardMarkup(buttons))
 
   elif type=="deletecaption":
@@ -484,17 +510,23 @@ async def settings_query(bot, query):
   elif type=="addcaption":
      await query.message.delete()
      caption = await prompt_for_input(bot, query.message.chat.id, "<b>Send your caption template.</b>\nUse <code>{filename}</code>, <code>{size}</code>, or <code>{caption}</code> as needed.\nSend <code>/cancel</code> to stop.")
-     if caption.text=="/cancel":
+     template = getattr(caption, "text", None)
+     if not template:
+        return await caption.reply_text(
+            "<b>Please send a text caption template.</b>",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+     if template.strip().lower() == "/cancel":
         return await caption.reply_text(
                   "<b>Setup cancelled.</b>",
                   reply_markup=InlineKeyboardMarkup(buttons))
      try:
-         caption.text.format(filename='', size='', caption='')
-     except KeyError as e:
+         validate_caption_template(template)
+     except (KeyError, IndexError, ValueError) as error:
          return await caption.reply_text(
-            f"<b>Unknown caption field: {e}. Use only the fields shown above.</b>",
+            f"<b>Invalid caption template:</b> <code>{escape(str(error))}</code>\nUse only the named fields shown above.",
             reply_markup=InlineKeyboardMarkup(buttons))
-     await update_configs(user_id, 'caption', caption.text)
+     await update_configs(user_id, 'caption', template)
      await caption.reply_text(
         "<b>✓ Changes saved</b>",
         reply_markup=InlineKeyboardMarkup(buttons))
@@ -522,16 +554,27 @@ async def settings_query(bot, query):
   elif type=="addurl":
      await query.message.delete()
      uri = await prompt_for_input(bot, user_id, "<b>Send your MongoDB connection URI.</b>\n\nThe URI is stored in your bot settings. Send <code>/cancel</code> to stop.", link_preview_options=LinkPreviewOptions(is_disabled=True))
-     if uri.text=="/cancel":
+     uri_text = getattr(uri, "text", None)
+     if not uri_text:
+        return await uri.reply("<b>Please send a MongoDB URI as text.</b>", reply_markup=InlineKeyboardMarkup(buttons))
+     if uri_text.strip().lower() == "/cancel":
         return await uri.reply_text(
                   "<b>Setup cancelled.</b>",
                   reply_markup=InlineKeyboardMarkup(buttons))
-     if not uri.text.startswith("mongodb+srv://") and not uri.text.endswith("majority"):
-        return await uri.reply("<b>Invalid MongoDB URI.</b> Please check the value and try again.",
+     try:
+        parsed_uri = urlsplit(uri_text.strip())
+        valid_uri = (
+            parsed_uri.scheme in {"mongodb", "mongodb+srv"}
+            and bool(parsed_uri.hostname)
+            and (parsed_uri.port is None or 1 <= parsed_uri.port <= 65535)
+        )
+     except ValueError:
+        valid_uri = False
+     if not valid_uri:
+        return await uri.reply("<b>Invalid MongoDB URI.</b> Use a valid <code>mongodb://</code> or <code>mongodb+srv://</code> URI.",
                    reply_markup=InlineKeyboardMarkup(buttons))
-     connect, udb = await connect_user_db(user_id, uri.text, "test")
+     connect, udb = await connect_user_db(user_id, uri_text.strip(), "test")
      if connect:
-        await udb.drop_all()
         await udb.close()
      else:
         return await uri.reply("<b>Could not connect to MongoDB.</b> Check the URI and network permissions.",
@@ -542,7 +585,10 @@ async def settings_query(bot, query):
 
   elif type=="seeurl":
      db_uri = (await get_configs(user_id))['db_uri']
-     await query.answer(f"DATABASE URL: {db_uri}", show_alert=True)
+     await query.answer(
+         f"MongoDB URI configured for: {mongo_uri_summary(db_uri)}",
+         show_alert=True,
+     )
 
   elif type=="deleteurl":
      await update_configs(user_id, 'db_uri', None)
@@ -623,7 +669,7 @@ async def settings_query(bot, query):
     if extensions:
        text += "<b>Saved extensions</b>"
        for ext in extensions:
-          text += f"\n• <code>{ext}</code>"
+          text += f"\n• <code>{escape(str(ext))}</code>"
     else:
        text += "<i>No extensions are excluded.</i>"
     btn.append([InlineKeyboardButton('➕ Add', callback_data='settings#add_extension')])
@@ -669,7 +715,7 @@ async def settings_query(bot, query):
     if keywords:
        text += "<b>Saved keywords</b>"
        for key in keywords:
-          text += f"\n• <code>{key}</code>"
+          text += f"\n• <code>{escape(str(key))}</code>"
     else:
        text += "<i>No keywords are excluded.</i>"
     btn.append([InlineKeyboardButton('➕ Add', callback_data='settings#add_keyword')])
@@ -686,9 +732,6 @@ async def settings_query(bot, query):
                       callback_data="settings#get_keyword")])
     await query.message.edit_text(text="<b>✓ Keywords cleared.</b>",
                                    reply_markup=InlineKeyboardMarkup(buttons))
-  elif type.startswith("alert"):
-    alert = type.split('_')[1]
-    await query.answer(alert, show_alert=True)
 
 
 async def settings_dashboard(user_id, continue_task_id=None):
