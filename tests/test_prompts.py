@@ -1,6 +1,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from pyrogram import StopPropagation, filters
 
@@ -77,6 +78,40 @@ class PromptTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(await prompt_task, incoming)
         self.assertEqual(client.deleted, [(12345, [1, 2])])
+
+    async def test_callback_choice_returns_value_and_deletes_prompt(self):
+        client = FakeClient()
+        prompt_task = asyncio.create_task(
+            ask(
+                client,
+                12345,
+                "Skip messages?",
+                filters=filters.text,
+                timeout=2,
+                delete_prompt_and_reply=True,
+                callback_choices={"Skip (0)": "0"},
+            )
+        )
+        await client.message_sent.wait()
+
+        markup = client.sent[0]["reply_markup"]
+        self.assertEqual(markup.inline_keyboard[0][0].text, "Skip (0)")
+        callback_handler, group = client.handlers[1]
+        self.assertEqual(group, -1)
+        answer = AsyncMock()
+        query = SimpleNamespace(
+            data=markup.inline_keyboard[0][0].callback_data,
+            message=SimpleNamespace(id=1),
+            answer=answer,
+        )
+        with self.assertRaises(StopPropagation):
+            await callback_handler.callback(client, query)
+
+        result = await prompt_task
+        self.assertEqual(result.text, "0")
+        self.assertEqual(result.id, 1)
+        answer.assert_awaited_once()
+        self.assertEqual(client.deleted, [(12345, [1])])
 
     async def test_prompt_timeout_cleans_up_waiter(self):
         client = FakeClient()

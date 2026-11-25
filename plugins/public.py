@@ -390,10 +390,11 @@ async def begin_forward(
     try:
         skipno = await prompt_for_input(bot,
             message.chat.id,
-            Script.SKIP_MSG,
+            f"{Script.SKIP_MSG}\n\nTap <b>Skip</b> to use 0, or type a number.",
             filters=filters.text,
             timeout=600,
             delete_prompt_and_reply=True,
+            callback_choices={"⏭️ Skip (0)": "0"},
         )
     except TimeoutError:
         return await message.reply_text("<b>Setup timed out.</b> Start again with <code>/forward</code>.")
