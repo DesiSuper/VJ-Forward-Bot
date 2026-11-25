@@ -235,6 +235,24 @@ class Db:
             {"user_id": int(user_id), "chat_id": int(chat_id), "title": title, "username": username}
         )
 
+    async def update_channel(
+        self,
+        user_id: int,
+        old_chat_id: int,
+        chat_id: int,
+        title: str,
+        username: str | None,
+    ) -> bool:
+        """Replace a saved destination chat without disturbing its other settings."""
+        self._require_database()
+        if int(old_chat_id) != int(chat_id) and await self.in_channel(user_id, chat_id):
+            return False
+        result = await self.chl.update_one(
+            {"user_id": int(user_id), "chat_id": int(old_chat_id)},
+            {"$set": {"chat_id": int(chat_id), "title": title, "username": username}},
+        )
+        return result.matched_count > 0
+
     async def remove_channel(self, user_id: int, chat_id: int):
         self._require_database()
         return await self.chl.delete_many(

@@ -361,12 +361,77 @@ async def settings_query(bot, query):
   elif type.startswith("editchannels"):
      chat_id = type.split('_')[1]
      chat = await db.get_channel_details(user_id, chat_id)
-     buttons = [[InlineKeyboardButton('🗑️ Remove destination', callback_data=f"settings#removechannel_{chat_id}")
-               ],
-               [InlineKeyboardButton('⬅️ Back', callback_data="settings#destinations")]]
+     buttons = [
+         [InlineKeyboardButton('✏️ Change destination channel', callback_data=f"settings#changechannel_{chat_id}")],
+         [InlineKeyboardButton('🗑️ Remove destination', callback_data=f"settings#removechannel_{chat_id}")],
+         [InlineKeyboardButton('⬅️ Back', callback_data="settings#destinations")],
+     ]
      await query.message.edit_text(
         f"<b>📣 Destination details</b>\n\n<b>Name:</b> <code>{chat['title']}</code>\n<b>Chat ID:</b> <code>{chat['chat_id']}</code>\n<b>Username:</b> {chat['username']}",
         reply_markup=InlineKeyboardMarkup(buttons))
+
+  elif type.startswith("changechannel_"):
+     old_chat_id = type.split("_", 1)[1]
+     current = await db.get_channel_details(user_id, old_chat_id)
+     if current is None:
+        return await query.answer("That destination is no longer saved.", show_alert=True)
+     await query.answer()
+     await query.message.delete()
+     try:
+        forwarded = await prompt_for_input(
+            bot,
+            user_id,
+            "<b>Change destination channel</b>\n\n"
+            "Forward a message from the new group or channel where your connected account can post.\n"
+            "Send <code>/cancel</code> to keep the current destination.",
+            filters=filters.all,
+            timeout=600,
+        )
+     except asyncio.TimeoutError:
+        return await bot.send_message(
+            user_id,
+            "<b>Destination change timed out.</b>",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("⬅️ Back to channels", callback_data="settings#destinations")]]
+            ),
+        )
+     if (forwarded.text or "").strip().lower() == "/cancel":
+        return await forwarded.reply_text(
+            "<b>Destination change cancelled. Your saved channel is unchanged.</b>",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("⬅️ Back to channels", callback_data="settings#destinations")]]
+            ),
+        )
+     origin = get_forward_origin(forwarded)
+     new_destination = get_forwarded_chat(forwarded)
+     if (
+         not getattr(origin, "date", None)
+         or new_destination is None
+         or new_destination.type not in {
+             enums.ChatType.CHANNEL,
+             enums.ChatType.GROUP,
+             enums.ChatType.SUPERGROUP,
+             enums.ChatType.FORUM,
+         }
+     ):
+        return await forwarded.reply_text(
+            "<b>That message was not forwarded from a group or channel.</b> The saved destination is unchanged."
+        )
+     new_id = new_destination.id
+     title = new_destination.title or str(new_id)
+     username = "@" + new_destination.username if new_destination.username else "private"
+     updated = await db.update_channel(user_id, int(old_chat_id), new_id, title, username)
+     result_text = (
+         "<b>✓ Destination channel changed.</b>"
+         if updated
+         else "<b>This channel is already saved as another destination.</b> The current destination was not changed."
+     )
+     return await forwarded.reply_text(
+         result_text,
+         reply_markup=InlineKeyboardMarkup(
+             [[InlineKeyboardButton("⬅️ View destination channels", callback_data="settings#destinations")]]
+         ),
+     )
 
   elif type.startswith("removechannel"):
      chat_id = type.split('_')[1]
