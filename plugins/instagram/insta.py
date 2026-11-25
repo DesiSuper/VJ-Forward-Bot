@@ -10,6 +10,7 @@ import asyncio
 import logging
 import re
 import tempfile
+from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -27,6 +28,15 @@ _INSTAGRAM_LINK_PATTERN = re.compile(
 )
 _VIDEO_EXTENSIONS = {".mp4"}
 _PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+@dataclass(frozen=True)
+class DownloadedInstagramMedia:
+    path: str
+    title: str
+    duration: int
+    width: int
+    height: int
 
 
 class InvalidInstagramURL(ValueError):
@@ -116,7 +126,12 @@ def download_instagram_media(url: str, output_dir: str) -> tuple[str, str]:
                 raise InstagramDownloadError("The media is too large to send through Telegram (limit: 45 MB).")
 
             title = str(info.get("title") or "Instagram media").strip()
-            return str(media_path), title[:900]
+            duration = max(0, int(float(info.get("duration") or 0)))
+            width = max(0, int(info.get("width") or 0))
+            height = max(0, int(info.get("height") or 0))
+            return DownloadedInstagramMedia(
+                str(media_path), title[:900], duration, width, height
+            )
     except InstagramDownloadError:
         raise
     except Exception as error:
@@ -146,18 +161,27 @@ async def instagram_link_handler(client, message):
     try:
         async with _DOWNLOAD_SEMAPHORE:
             with tempfile.TemporaryDirectory(prefix="instagram-download-") as directory:
-                path, title = await asyncio.to_thread(download_instagram_media, url, directory)
-                media_path = Path(path)
-                caption = escape(title)
+                downloaded = await asyncio.to_thread(download_instagram_media, url, directory)
+                media_path = Path(downloaded.path)
+                caption = escape(downloaded.title)
                 suffix = media_path.suffix.lower()
                 if suffix in _PHOTO_EXTENSIONS and media_path.stat().st_size <= _MAX_PHOTO_BYTES:
                     await client.send_photo(message.chat.id, str(media_path), caption=caption)
-                elif suffix in _VIDEO_EXTENSIONS:
+                elif (
+                    suffix in _VIDEO_EXTENSIONS
+                    and downloaded.duration > 0
+                    and downloaded.width > 0
+                    and downloaded.height > 0
+                ):
                     await client.send_video(
                         message.chat.id,
                         str(media_path),
                         caption=caption,
+                        duration=downloaded.duration,
+                        width=downloaded.width,
+                        height=downloaded.height,
                         supports_streaming=True,
+                        no_sound=False,
                     )
                 else:
                     await client.send_document(message.chat.id, str(media_path), caption=caption)
