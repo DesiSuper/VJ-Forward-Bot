@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from pyrogram import StopPropagation, filters
+from pyrogram.enums import ButtonStyle
 
 from plugins.prompts import ask
 
@@ -120,13 +121,21 @@ class PromptTests(unittest.IsolatedAsyncioTestCase):
                 client,
                 12345,
                 "Forwarding setup",
-                callback_choices={"Start (skip 0)": "0"},
+                callback_choices={
+                    "🚀 Start (skip 0)": "0",
+                    "⚙️ Settings": "__settings__",
+                    "❌ Cancel": "__cancel__",
+                },
                 return_prompt=True,
                 defer_callback_answer=True,
                 timeout=2,
             )
         )
         await client.message_sent.wait()
+        buttons = client.sent[0]["reply_markup"].inline_keyboard
+        self.assertIs(buttons[0][0].style, ButtonStyle.SUCCESS)
+        self.assertIs(buttons[1][0].style, ButtonStyle.PRIMARY)
+        self.assertIs(buttons[2][0].style, ButtonStyle.DANGER)
         prompt_message = SimpleNamespace(id=1)
         callback_handler, _ = client.handlers[1]
         answer = AsyncMock()

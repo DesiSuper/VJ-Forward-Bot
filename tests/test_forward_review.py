@@ -1,10 +1,9 @@
 import unittest
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from config import temp
-from forward_review import PENDING_REVIEW, format_forwarding_settings
-from plugins.forwarding import return_to_forward_review, review_forwarding_task
+from forward_review import format_forwarding_settings
+from plugins.forwarding import review_forwarding_task
 from plugins.settings import quick_settings_dashboard, size_filter_dashboard, time_gap_dashboard
 from plugins.utils import STS
 
@@ -92,7 +91,6 @@ class ForwardReviewTests(unittest.TestCase):
         self.assertIn("settings#update_size:15", size_callbacks)
         self.assertIn("settings#maxupdate_size:55", size_callbacks)
         self.assertIn("continue_public_321-654", size_callbacks)
-        self.assertIn("review_public_321-654", size_callbacks)
         self.assertIn("Time gap", gap_text)
         self.assertIn("✅ ⏱️ 3–7 sec", gap_markup.inline_keyboard[1][0].text)
         self.assertIn("settings#gap:5:15", gap_callbacks)
@@ -160,48 +158,6 @@ class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(f"cancel_public_{forward_id}", callback_data)
 
         STS(forward_id).data.pop(forward_id, None)
-
-    async def test_settings_back_button_returns_to_task_review(self):
-        user_id = 731003
-        forward_id = f"{user_id}-100"
-        STS(forward_id).store(
-            -100222,
-            -100333,
-            0,
-            900,
-            review={
-                "botname": "Forward Bot",
-                "botuname": "forward_bot",
-                "from_chat": "Source",
-                "to_chat": "Destination",
-            },
-        )
-        PENDING_REVIEW[user_id] = forward_id
-        message = SimpleNamespace(
-            chat=SimpleNamespace(id=user_id),
-            edit_text=AsyncMock(),
-        )
-        query = SimpleNamespace(
-            from_user=SimpleNamespace(id=user_id),
-            message=message,
-            data=f"review_public_{forward_id}",
-            answer=AsyncMock(),
-        )
-
-        await return_to_forward_review(None, query)
-
-        query.answer.assert_awaited_once()
-        self.assertNotIn(user_id, PENDING_REVIEW)
-        text = message.edit_text.await_args.args[0]
-        self.assertIn("Source", text)
-        self.assertIn("Destination", text)
-        markup = message.edit_text.await_args.kwargs["reply_markup"]
-        callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
-        self.assertIn(f"continue_public_{forward_id}", callbacks)
-        self.assertIn(f"start_public_{forward_id}", callbacks)
-        self.assertIn(f"cancel_public_{forward_id}", callbacks)
-        STS(forward_id).data.pop(forward_id, None)
-
 
 if __name__ == "__main__":
     unittest.main()

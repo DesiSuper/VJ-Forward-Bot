@@ -122,6 +122,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prompt.await_args.kwargs["callback_choices"], {
             "🚀 Start (skip 0)": "0",
             "⚙️ Settings": "__settings__",
+            "❌ Cancel": "__cancel__",
         })
         start_forwarding.assert_awaited_once()
         routed_query = start_forwarding.await_args.args[1]
@@ -129,6 +130,43 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(routed_query.message, prompt_message)
         self.assertEqual(STS(forward_id).get("skip"), 0)
         STS(forward_id).data.pop(forward_id, None)
+
+    async def test_cancel_button_cancels_from_skip_prompt(self):
+        user_id = 78907
+        source = {"chat_id": -100222, "title": "Saved source"}
+        message = SimpleNamespace(chat=SimpleNamespace(id=user_id), reply_text=AsyncMock())
+        prompt_message = SimpleNamespace(id=803, edit_text=AsyncMock())
+        callback_query = SimpleNamespace(
+            from_user=SimpleNamespace(id=user_id),
+            message=prompt_message,
+            answer=AsyncMock(),
+        )
+        cancel_choice = SimpleNamespace(
+            text="__cancel__",
+            id=803,
+            from_callback=True,
+            callback_query=callback_query,
+        )
+
+        with (
+            patch("plugins.public.db.get_bot", new=AsyncMock(return_value={"name": "My bot", "username": "my_bot"})),
+            patch("plugins.public.db.get_user_channels", new=AsyncMock(return_value=[{"chat_id": -100111, "title": "Destination"}])),
+            patch("plugins.public.db.get_configs", new=AsyncMock(return_value={"sources": [source]})),
+            patch("plugins.public.latest_source_message_id", new=AsyncMock(return_value=987)),
+            patch("plugins.public.update_configs", new=AsyncMock()),
+            patch("plugins.public.prompt_for_input", new=AsyncMock(return_value=(cancel_choice, prompt_message))),
+        ):
+            await begin_forward(
+                object(),
+                message,
+                user_id=user_id,
+                selected_destination=(-100111, "Destination"),
+                selected_source=source,
+            )
+
+        callback_query.answer.assert_awaited_once_with("Forward setup cancelled.")
+        prompt_message.edit_text.assert_awaited_once_with("<b>Setup cancelled.</b>", reply_markup=None)
+        self.assertNotIn(f"{user_id}-803", STS("unused").data)
 
     async def test_settings_button_opens_task_settings_from_skip_prompt(self):
         user_id = 78906
@@ -264,7 +302,6 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(f"continue_public_{forward_id}", callbacks)
         self.assertIn(f"start_public_{forward_id}", callbacks)
         self.assertIn(f"cancel_public_{forward_id}", callbacks)
-        self.assertEqual(STS(forward_id).get("review")["from_chat"], "Saved source")
         message.reply_text.assert_not_awaited()
         STS(forward_id).data.pop(forward_id, None)
 

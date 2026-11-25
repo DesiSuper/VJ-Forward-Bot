@@ -154,6 +154,20 @@ def _editing_message_context(query, bot):
     )
 
 
+async def _clear_setup_menu(message, user_id):
+    setup_message = getattr(message, "setup_message", None)
+    if setup_message is None:
+        return
+    try:
+        await setup_message.delete()
+    except Exception:
+        logger.warning("Could not remove temporary forwarding menu for user %s", user_id)
+        try:
+            await setup_message.edit_text("<b>Setup updated. Continue in the latest message.</b>")
+        except Exception:
+            logger.debug("Could not clear temporary forwarding menu for user %s", user_id)
+
+
 async def _get_destination(user_id, destination_id):
     channels = await db.get_user_channels(user_id)
     return next((item for item in channels if str(item["chat_id"]) == str(destination_id)), None)
@@ -430,17 +444,23 @@ async def begin_forward(
             callback_choices={
                 "🚀 Start (skip 0)": "0",
                 "⚙️ Settings": "__settings__",
+                "❌ Cancel": "__cancel__",
             },
             return_prompt=True,
             defer_callback_answer=True,
         )
     except TimeoutError:
         return await message.reply_text("<b>Setup timed out.</b> Start again with <code>/forward</code>.")
+    if getattr(skipno, "from_callback", False) and skipno.text == "__cancel__":
+        await _clear_setup_menu(message, user_id)
+        await skipno.callback_query.answer("Forward setup cancelled.")
+        return await skip_prompt.edit_text(Script.CANCEL, reply_markup=None)
     if not skipno.text or skipno.text.strip().lower() == "/cancel":
         try:
             await bot.delete_messages(message.chat.id, [skip_prompt.id, skipno.id])
         except Exception:
             logger.debug("Could not remove cancelled skip prompt for user %s", user_id, exc_info=True)
+        await _clear_setup_menu(message, user_id)
         return await message.reply(Script.CANCEL)
     try:
         skip_count = (
@@ -465,7 +485,6 @@ async def begin_forward(
         toid,
         skip_count,
         int(last_msg_id),
-        review=review_data,
     )
     reply_markup = InlineKeyboardMarkup(
         [
@@ -484,16 +503,7 @@ async def begin_forward(
         skip=escape(str(skip_count)),
     )
 
-    setup_message = getattr(message, "setup_message", None)
-    if setup_message is not None:
-        try:
-            await setup_message.delete()
-        except Exception:
-            logger.warning("Could not remove temporary forwarding menu for user %s", user_id)
-            try:
-                await setup_message.edit_text("<b>Setup complete. Review the latest forwarding options below.</b>")
-            except Exception:
-                logger.debug("Could not clear temporary forwarding menu for user %s", user_id)
+    await _clear_setup_menu(message, user_id)
 
     if getattr(skipno, "from_callback", False):
         callback_query = skipno.callback_query

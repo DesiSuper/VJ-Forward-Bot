@@ -888,7 +888,6 @@ def time_gap_dashboard(config, continue_task_id=None):
 def append_task_controls(keyboard, task_id):
     keyboard.extend(
         [
-            [InlineKeyboardButton("↩️ Back to task review", callback_data=f"review_public_{task_id}")],
             [InlineKeyboardButton("✅ Continue & start forwarding", callback_data=f"continue_public_{task_id}")],
             [InlineKeyboardButton("❌ Cancel task setup", callback_data=f"cancel_public_{task_id}")],
         ]

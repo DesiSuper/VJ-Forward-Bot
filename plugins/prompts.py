@@ -12,7 +12,9 @@ from typing import Any
 
 from pyrogram import Client, StopPropagation, filters
 from pyrogram.handlers import CallbackQueryHandler, MessageHandler
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import InlineKeyboardMarkup, Message
+
+from .ui import InlineKeyboardButton
 
 
 @dataclass
