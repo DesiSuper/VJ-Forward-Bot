@@ -8,7 +8,7 @@ class MessageTemplateTests(unittest.TestCase):
         self.assertIn("Ari", Script.START_TXT.format("Ari"))
         self.assertIn(
             "Fetched",
-            Script.TEXT.format(1, 2, 3, 4, 5, 6, 7, 8, "Running", 50, "Task"),
+            Script.TEXT.format(1, 2, 3, 4, 5, 6, 7, 8, "Running", 50, "[██████████░░░░░░░░░░]", "2m", "Task"),
         )
         self.assertIn("scanned", Script.DUPLICATE_TEXT.format(10, 2, "Done"))
 

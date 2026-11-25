@@ -1,7 +1,6 @@
 
 import asyncio
 import logging
-import math
 import time
 
 from pyrogram import Client, filters
@@ -399,6 +398,12 @@ async def msg_edit(msg, text, button=None, wait=None):
            return await msg_edit(msg, text, button, wait)
 
 
+def render_progress_bar(percentage, width=20):
+   value = max(0.0, min(100.0, float(percentage)))
+   filled = min(width, int(value * width / 100))
+   return f"[{('█' * filled)}{('░' * (width - filled))}]"
+
+
 async def edit(user, msg, title, status, sts):
    key = (user, msg.id)
    now_monotonic = time.monotonic()
@@ -409,20 +414,9 @@ async def edit(user, msg, title, status, sts):
    _LAST_PROGRESS_EDIT[key] = now_monotonic
    i = sts.get(full=True)
    status = 'Forwarding' if status == 5 else f"sleeping {status} s" if str(status).isnumeric() else status
-   percentage = f"{float(i.fetched)*100/float(i.total):.0f}"
-   text = TEXT.format(
-       i.fetched,
-       i.total_files,
-       i.videos,
-       i.photos,
-       i.duplicate,
-       i.deleted,
-       i.skip,
-       i.filtered,
-       status,
-       percentage,
-       title,
-   )
+   percentage_value = max(0.0, min(100.0, float(i.fetched) * 100 / float(i.total or 1)))
+   percentage = f"{percentage_value:.0f}"
+   progress_bar = render_progress_bar(percentage_value)
    await update_forward(
        user_id=user,
        last_id=None,
@@ -441,23 +435,31 @@ async def edit(user, msg, title, status, sts):
        skip=i.skip,
        filterd=i.filtered,
    )
-   now = time.time()
-   diff = int(now - i.start)
-   speed = sts.divide(i.fetched, diff)
-   elapsed_time = round(diff) * 1000
-   time_to_completion = round(sts.divide(i.total - i.fetched, int(speed))) * 1000
-   estimated_total_time = elapsed_time + time_to_completion
-   progress = "●{0}{1}".format(
-       ''.join(["●" for i in range(math.floor(int(percentage) / 4))]),
-       ''.join(["○" for i in range(24 - math.floor(int(percentage) / 4))]))
-   button =  [[InlineKeyboardButton(f'📊 {progress}', callback_data=f'fwrdstatus#{status}#{estimated_total_time}#{percentage}#{i.id}')]]
-   estimated_total_time = TimeFormatter(milliseconds=estimated_total_time)
-   estimated_total_time = estimated_total_time if estimated_total_time != '' else '0 s'
-   if status in ["cancelled", "completed"]:
-      button.append([InlineKeyboardButton('✅ Done · Close', callback_data='close_btn')])
+   elapsed_seconds = max(0, int(time.time() - i.start))
+   speed = sts.divide(i.fetched, elapsed_seconds)
+   remaining_messages = max(0, i.total - i.fetched)
+   eta_seconds = round(remaining_messages / speed) if speed > 0 else 0
+   eta = TimeFormatter(milliseconds=eta_seconds * 1000) or "0s"
+   text = TEXT.format(
+       i.fetched,
+       i.total_files,
+       i.videos,
+       i.photos,
+       i.duplicate,
+       i.deleted,
+       i.skip,
+       i.filtered,
+       status,
+       percentage,
+       progress_bar,
+       eta,
+       title,
+   )
+   if terminal:
+      buttons = [[InlineKeyboardButton('✅ Done · Close', callback_data='close_btn')]]
    else:
-      button.append([InlineKeyboardButton('🛑 Cancel task', callback_data='terminate_frwd')])
-   await msg_edit(msg, text, InlineKeyboardMarkup(button))
+      buttons = [[InlineKeyboardButton('🛑 Cancel task', callback_data='terminate_frwd')]]
+   await msg_edit(msg, text, InlineKeyboardMarkup(buttons))
    if terminal:
       _LAST_PROGRESS_EDIT.pop(key, None)
 

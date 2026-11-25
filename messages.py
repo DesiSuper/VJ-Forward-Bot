@@ -70,6 +70,8 @@ Use <code>/cancel</code> during setup to leave the current step. A connected use
 <b>Filtered</b>      <code>{}</code>
 <b>Status</b>        <code>{}</code>
 <b>Progress</b>      <code>{}%</code>
+<code>{}</code>
+<b>ETA</b>           <code>{}</code>
 
 <code>{}</code>"""
 
