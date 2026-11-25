@@ -13,6 +13,7 @@ from .ui import InlineKeyboardButton
 from config import temp
 from database import db
 from forwarding_delay import choose_random_gap, normalize_random_gap
+from forward_review import format_forwarding_settings
 from messages import Script
 
 from .clients import CLIENT, get_client, iter_messages
@@ -157,7 +158,36 @@ async def forward_source_messages(
     return True
 
 
-@Client.on_callback_query(filters.regex(r'^start_public'))
+@Client.on_callback_query(filters.regex(r"^start_public_"))
+async def review_forwarding_task(bot, query):
+    user = query.from_user.id
+    if query.message.chat.id != user:
+        return await query.answer(
+            "Open this task in your private chat to review it.", show_alert=True
+        )
+
+    forward_id = query.data.split("_", 2)[2]
+    task = STS(forward_id)
+    if not task.verify():
+        return await query.answer("This setup expired. Start again with /forward.", show_alert=True)
+    task_data = task.get(full=True)
+    if temp.lock.get(user) or task_data.TO in temp.IS_FRWD_CHAT:
+        return await query.answer("A forwarding task is already active.", show_alert=True)
+
+    await query.answer()
+    config = await db.get_configs(user)
+    base_text = query.message.text or "<b>Review forwarding task</b>"
+    review_text = f"{base_text}\n\n{format_forwarding_settings(config)}"
+    buttons = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("✅ Continue", callback_data=f"continue_public_{forward_id}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="close_btn")],
+        ]
+    )
+    await query.message.edit_text(review_text, reply_markup=buttons)
+
+
+@Client.on_callback_query(filters.regex(r"^continue_public_"))
 async def pub_(bot, message):
     user = message.from_user.id
     temp.CANCEL[user] = False
