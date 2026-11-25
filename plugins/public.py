@@ -406,74 +406,118 @@ async def begin_forward(
             source["last_message_id"] = int(last_msg_id)
             await update_configs(user_id, "sources", saved_sources)
 
+    review_data = {
+        "botname": str(_bot.get("name") or "Connected account"),
+        "botuname": str(_bot.get("username") or "no username"),
+        "from_chat": str(title),
+        "to_chat": str(to_title),
+    }
+    skip_prompt_text = (
+        "<b>Forwarding setup</b>\n\n"
+        f"<b>Account:</b> {escape(review_data['botname'])} (@{escape(review_data['botuname'])})\n"
+        f"<b>Source:</b> {escape(review_data['from_chat'])}\n"
+        f"<b>Destination:</b> {escape(review_data['to_chat'])}\n\n"
+        "<b>Messages to skip:</b> enter a number (default: <code>0</code>).\n"
+        "Tap <b>Start (skip 0)</b> to start now, or open Settings."
+    )
     try:
-        skipno = await prompt_for_input(bot,
+        skipno, skip_prompt = await prompt_for_input(
+            bot,
             message.chat.id,
-            f"{Script.SKIP_MSG}\n\nTap <b>Skip</b> to use 0, or type a number.",
+            skip_prompt_text,
             filters=filters.text,
             timeout=600,
-            delete_prompt_and_reply=True,
-            callback_choices={"⏭️ Skip (0)": "0"},
+            callback_choices={
+                "🚀 Start (skip 0)": "0",
+                "⚙️ Settings": "__settings__",
+            },
+            return_prompt=True,
+            defer_callback_answer=True,
         )
     except TimeoutError:
         return await message.reply_text("<b>Setup timed out.</b> Start again with <code>/forward</code>.")
     if not skipno.text or skipno.text.strip().lower() == "/cancel":
+        try:
+            await bot.delete_messages(message.chat.id, [skip_prompt.id, skipno.id])
+        except Exception:
+            logger.debug("Could not remove cancelled skip prompt for user %s", user_id, exc_info=True)
         return await message.reply(Script.CANCEL)
     try:
-        skip_count = int(skipno.text.strip())
+        skip_count = (
+            0
+            if getattr(skipno, "from_callback", False) and skipno.text == "__settings__"
+            else int(skipno.text.strip())
+        )
         if skip_count < 0:
             raise ValueError
     except ValueError:
+        try:
+            await bot.delete_messages(message.chat.id, [skip_prompt.id, skipno.id])
+        except Exception:
+            logger.debug("Could not remove invalid skip prompt for user %s", user_id, exc_info=True)
         return await skipno.reply_text(
             "<b>Enter a non-negative whole number</b> for messages to skip, or send <code>/cancel</code>."
         )
+
     forward_id = f"{user_id}-{skipno.id}"
-    buttons = [
-        [
-            InlineKeyboardButton('🚀 Start forwarding', callback_data=f"continue_public_{forward_id}"),
-            InlineKeyboardButton('⚙️ Settings', callback_data=f"start_public_{forward_id}"),
-        ],
-        [InlineKeyboardButton('❌ Cancel', callback_data=f"cancel_public_{forward_id}")],
-    ]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    confirmation_text = Script.DOUBLE_CHECK.format(
-        botname=escape(str(_bot.get('name') or 'Connected account')),
-        botuname=escape(str(_bot.get('username') or 'no username')),
-        from_chat=escape(str(title)),
-        to_chat=escape(str(to_title)),
-        skip=escape(str(skip_count)),
-    )
-    setup_message = getattr(message, "setup_message", None)
-    confirmation_reply = getattr(message, "confirmation_reply", None)
-    if setup_message is not None and confirmation_reply is not None:
-        try:
-            await setup_message.delete()
-        except Exception:
-            logger.warning("Could not remove temporary forwarding menu for user %s", user_id)
-            try:
-                await setup_message.edit_text("<b>Setup complete. Review the latest forwarding confirmation below.</b>")
-            except Exception:
-                logger.debug("Could not clear temporary forwarding menu for user %s", user_id)
-        await confirmation_reply(
-            text=confirmation_text,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-            reply_markup=reply_markup,
-        )
-    else:
-        await message.reply_text(
-            text=confirmation_text,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-            reply_markup=reply_markup,
-        )
     STS(forward_id).store(
         chat_id,
         toid,
         skip_count,
         int(last_msg_id),
-        review={
-            "botname": str(_bot.get("name") or "Connected account"),
-            "botuname": str(_bot.get("username") or "no username"),
-            "from_chat": str(title),
-            "to_chat": str(to_title),
-        },
+        review=review_data,
+    )
+    reply_markup = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🚀 Start forwarding", callback_data=f"continue_public_{forward_id}"),
+                InlineKeyboardButton("⚙️ Settings", callback_data=f"start_public_{forward_id}"),
+            ],
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_public_{forward_id}")],
+        ]
+    )
+    confirmation_text = Script.DOUBLE_CHECK.format(
+        botname=escape(review_data["botname"]),
+        botuname=escape(review_data["botuname"]),
+        from_chat=escape(review_data["from_chat"]),
+        to_chat=escape(review_data["to_chat"]),
+        skip=escape(str(skip_count)),
+    )
+
+    setup_message = getattr(message, "setup_message", None)
+    if setup_message is not None:
+        try:
+            await setup_message.delete()
+        except Exception:
+            logger.warning("Could not remove temporary forwarding menu for user %s", user_id)
+            try:
+                await setup_message.edit_text("<b>Setup complete. Review the latest forwarding options below.</b>")
+            except Exception:
+                logger.debug("Could not clear temporary forwarding menu for user %s", user_id)
+
+    if getattr(skipno, "from_callback", False):
+        callback_query = skipno.callback_query
+        routed_query = SimpleNamespace(
+            from_user=callback_query.from_user,
+            message=callback_query.message,
+            answer=callback_query.answer,
+        )
+        if skipno.text == "__settings__":
+            from .forwarding import review_forwarding_task
+
+            routed_query.data = f"start_public_{forward_id}"
+            return await review_forwarding_task(bot, routed_query)
+        from .forwarding import pub_
+
+        routed_query.data = f"continue_public_{forward_id}"
+        return await pub_(bot, routed_query)
+
+    try:
+        await bot.delete_messages(message.chat.id, [skipno.id])
+    except Exception:
+        logger.debug("Could not remove typed skip count for user %s", user_id, exc_info=True)
+    return await skip_prompt.edit_text(
+        confirmation_text,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+        reply_markup=reply_markup,
     )

@@ -287,6 +287,7 @@ async def pub_(bot, message):
     temp.lock[user] = True
     temp.IS_FRWD_CHAT.append(i.TO)
     PENDING_REVIEW.pop(user, None)
+    await message.answer("Starting forwarding…")
     m = await msg_edit(message.message, "<b>Preparing your forwarding task…</b>")
     _bot, caption, forward_tag, datas, protect, button = await sts.get_data(user)
     random_gap = normalize_random_gap(datas.get("random_gap"))

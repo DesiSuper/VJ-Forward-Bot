@@ -100,7 +100,7 @@ class ForwardReviewTests(unittest.TestCase):
 
 
 class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
-    async def test_start_button_shows_settings_and_continue_action(self):
+    async def test_settings_button_opens_review_settings_and_continue_action(self):
         user_id = 731002
         forward_id = f"{user_id}-99"
         STS(forward_id).store("source", -100123, 0, 100)

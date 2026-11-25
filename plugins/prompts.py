@@ -19,6 +19,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 class _PromptChoice:
     text: str
     id: int
+    callback_query: Any = None
     from_callback: bool = True
 
 
@@ -27,6 +28,7 @@ class _PendingPrompt:
     future: asyncio.Future[Any]
     message_filter: Any = None
     callback_values: dict[str, str] | None = None
+    defer_callback_answer: bool = False
 
 
 _PENDING: dict[tuple[int, int], _PendingPrompt] = {}
@@ -63,11 +65,13 @@ async def _capture_prompt_callback(client: Client, query: Any) -> None:
     if pending is None or pending.future.done():
         return
 
-    await query.answer()
+    if not pending.defer_callback_answer:
+        await query.answer()
     pending.future.set_result(
         _PromptChoice(
             text=pending.callback_values[query.data],
             id=query.message.id,
+            callback_query=query,
         )
     )
     raise StopPropagation
@@ -92,6 +96,8 @@ async def ask(
     timeout: float | None = None,
     delete_prompt_and_reply: bool = False,
     callback_choices: dict[str, str] | None = None,
+    return_prompt: bool = False,
+    defer_callback_answer: bool = False,
     **send_options: Any,
 ) -> Any:
     """Send a prompt and wait for a matching private message or button choice.
@@ -119,7 +125,10 @@ async def ask(
             ]
         )
     pending = _PendingPrompt(
-        future=future, message_filter=filters, callback_values=callback_values
+        future=future,
+        message_filter=filters,
+        callback_values=callback_values,
+        defer_callback_answer=defer_callback_answer,
     )
     _PENDING[key] = pending
     if callback_values:
@@ -136,7 +145,7 @@ async def ask(
             response = await future
         else:
             response = await asyncio.wait_for(future, timeout=timeout)
-        return response
+        return (response, prompt_message) if return_prompt else response
     finally:
         if _PENDING.get(key) is pending:
             _PENDING.pop(key, None)

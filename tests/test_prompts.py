@@ -113,6 +113,37 @@ class PromptTests(unittest.IsolatedAsyncioTestCase):
         answer.assert_awaited_once()
         self.assertEqual(client.deleted, [(12345, [1])])
 
+    async def test_prompt_can_return_prompt_and_defer_callback_acknowledgement(self):
+        client = FakeClient()
+        prompt_task = asyncio.create_task(
+            ask(
+                client,
+                12345,
+                "Forwarding setup",
+                callback_choices={"Start (skip 0)": "0"},
+                return_prompt=True,
+                defer_callback_answer=True,
+                timeout=2,
+            )
+        )
+        await client.message_sent.wait()
+        prompt_message = SimpleNamespace(id=1)
+        callback_handler, _ = client.handlers[1]
+        answer = AsyncMock()
+        query = SimpleNamespace(
+            data=client.sent[0]["reply_markup"].inline_keyboard[0][0].callback_data,
+            message=prompt_message,
+            answer=answer,
+        )
+        with self.assertRaises(StopPropagation):
+            await callback_handler.callback(client, query)
+
+        choice, returned_prompt = await prompt_task
+        self.assertEqual(choice.text, "0")
+        self.assertIs(choice.callback_query, query)
+        self.assertEqual(returned_prompt.id, 1)
+        answer.assert_not_awaited()
+
     async def test_prompt_timeout_cleans_up_waiter(self):
         client = FakeClient()
         with self.assertRaises(TimeoutError):

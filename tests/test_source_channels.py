@@ -51,6 +51,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         )
         source = {"chat_id": -100222, "title": "Saved source"}
         skip_reply = SimpleNamespace(text="0", id=555)
+        skip_prompt = SimpleNamespace(id=54, edit_text=AsyncMock())
         bot = object()
 
         with (
@@ -59,7 +60,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
             patch("plugins.public.db.get_configs", new=AsyncMock(return_value={"sources": [source]})),
             patch("plugins.public.latest_source_message_id", new=AsyncMock(return_value=987)) as latest_message,
             patch("plugins.public.update_configs", new=AsyncMock()) as save_checkpoint,
-            patch("plugins.public.prompt_for_input", new=AsyncMock(return_value=skip_reply)) as prompt,
+            patch("plugins.public.prompt_for_input", new=AsyncMock(return_value=(skip_reply, skip_prompt))) as prompt,
         ):
             await begin_forward(
                 bot,
@@ -74,11 +75,103 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         save_checkpoint.assert_awaited_once_with(user_id, "sources", [source])
         prompt.assert_awaited_once()
         self.assertIn("Messages to skip", prompt.await_args.args[2])
+        self.assertIn("Saved source", prompt.await_args.args[2])
+        self.assertEqual(prompt.await_args.kwargs["callback_choices"]["🚀 Start (skip 0)"], "0")
         task = STS(forward_id)
         self.assertTrue(task.verify())
         self.assertEqual(task.get("FROM"), -100222)
         self.assertEqual(task.get("limit"), 987)
         task.data.pop(forward_id, None)
+
+    async def test_start_skip_zero_button_starts_without_a_review_step(self):
+        user_id = 78905
+        forward_id = f"{user_id}-801"
+        source = {"chat_id": -100222, "title": "Saved source"}
+        message = SimpleNamespace(chat=SimpleNamespace(id=user_id), reply_text=AsyncMock())
+        prompt_message = SimpleNamespace(id=801)
+        callback_query = SimpleNamespace(
+            from_user=SimpleNamespace(id=user_id),
+            message=prompt_message,
+            answer=AsyncMock(),
+        )
+        skip_choice = SimpleNamespace(
+            text="0",
+            id=801,
+            from_callback=True,
+            callback_query=callback_query,
+        )
+        bot = object()
+
+        with (
+            patch("plugins.public.db.get_bot", new=AsyncMock(return_value={"name": "My bot", "username": "my_bot"})),
+            patch("plugins.public.db.get_user_channels", new=AsyncMock(return_value=[{"chat_id": -100111, "title": "Destination"}])),
+            patch("plugins.public.db.get_configs", new=AsyncMock(return_value={"sources": [source]})),
+            patch("plugins.public.latest_source_message_id", new=AsyncMock(return_value=987)),
+            patch("plugins.public.update_configs", new=AsyncMock()),
+            patch("plugins.public.prompt_for_input", new=AsyncMock(return_value=(skip_choice, prompt_message))) as prompt,
+            patch("plugins.forwarding.pub_", new=AsyncMock()) as start_forwarding,
+        ):
+            await begin_forward(
+                bot,
+                message,
+                user_id=user_id,
+                selected_destination=(-100111, "Destination"),
+                selected_source=source,
+            )
+
+        self.assertEqual(prompt.await_args.kwargs["callback_choices"], {
+            "🚀 Start (skip 0)": "0",
+            "⚙️ Settings": "__settings__",
+        })
+        start_forwarding.assert_awaited_once()
+        routed_query = start_forwarding.await_args.args[1]
+        self.assertEqual(routed_query.data, f"continue_public_{forward_id}")
+        self.assertIs(routed_query.message, prompt_message)
+        self.assertEqual(STS(forward_id).get("skip"), 0)
+        STS(forward_id).data.pop(forward_id, None)
+
+    async def test_settings_button_opens_task_settings_from_skip_prompt(self):
+        user_id = 78906
+        forward_id = f"{user_id}-802"
+        source = {"chat_id": -100222, "title": "Saved source"}
+        message = SimpleNamespace(chat=SimpleNamespace(id=user_id), reply_text=AsyncMock())
+        prompt_message = SimpleNamespace(id=802)
+        callback_query = SimpleNamespace(
+            from_user=SimpleNamespace(id=user_id),
+            message=prompt_message,
+            answer=AsyncMock(),
+        )
+        settings_choice = SimpleNamespace(
+            text="__settings__",
+            id=802,
+            from_callback=True,
+            callback_query=callback_query,
+        )
+        bot = object()
+
+        with (
+            patch("plugins.public.db.get_bot", new=AsyncMock(return_value={"name": "My bot", "username": "my_bot"})),
+            patch("plugins.public.db.get_user_channels", new=AsyncMock(return_value=[{"chat_id": -100111, "title": "Destination"}])),
+            patch("plugins.public.db.get_configs", new=AsyncMock(return_value={"sources": [source]})),
+            patch("plugins.public.latest_source_message_id", new=AsyncMock(return_value=987)),
+            patch("plugins.public.update_configs", new=AsyncMock()),
+            patch("plugins.public.prompt_for_input", new=AsyncMock(return_value=(settings_choice, prompt_message))),
+            patch("plugins.forwarding.review_forwarding_task", new=AsyncMock()) as open_settings,
+        ):
+            await begin_forward(
+                bot,
+                message,
+                user_id=user_id,
+                selected_destination=(-100111, "Destination"),
+                selected_source=source,
+            )
+
+        open_settings.assert_awaited_once()
+        routed_query = open_settings.await_args.args[1]
+        self.assertEqual(routed_query.data, f"start_public_{forward_id}")
+        self.assertIs(routed_query.message, prompt_message)
+        self.assertEqual(STS(forward_id).get("skip"), 0)
+        STS(forward_id).data.pop(forward_id, None)
 
     async def test_saved_source_uses_cached_message_id_when_history_read_fails(self):
         user_id = 78904
@@ -90,6 +183,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         )
         source = {"chat_id": -100222, "title": "Saved source", "last_message_id": 876}
         skip_reply = SimpleNamespace(text="0", id=557)
+        skip_prompt = SimpleNamespace(id=57, edit_text=AsyncMock())
         bot = object()
 
         with (
@@ -97,7 +191,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
             patch("plugins.public.db.get_user_channels", new=AsyncMock(return_value=[{"chat_id": -100111, "title": "Destination"}])),
             patch("plugins.public.db.get_configs", new=AsyncMock(return_value={"sources": [source]})),
             patch("plugins.public.latest_source_message_id", new=AsyncMock(side_effect=RuntimeError("history unavailable"))),
-            patch("plugins.public.prompt_for_input", new=AsyncMock(return_value=skip_reply)) as prompt,
+            patch("plugins.public.prompt_for_input", new=AsyncMock(return_value=(skip_reply, skip_prompt))) as prompt,
         ):
             await begin_forward(
                 bot,
@@ -135,6 +229,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         skip_reply = SimpleNamespace(text="0", id=556)
+        skip_prompt = SimpleNamespace(id=58, edit_text=AsyncMock())
 
         with (
             patch("plugins.public.db.get_bot", new=AsyncMock(return_value={"name": "My bot", "username": "my_bot"})),
@@ -142,7 +237,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
             patch("plugins.public.db.get_configs", new=AsyncMock(return_value={"sources": [source]})),
             patch("plugins.public.latest_source_message_id", new=AsyncMock(side_effect=RuntimeError("history unavailable"))),
             patch("plugins.public.update_configs", new=AsyncMock()) as save_checkpoint,
-            patch("plugins.public.prompt_for_input", new=AsyncMock(side_effect=[endpoint, skip_reply])) as prompt,
+            patch("plugins.public.prompt_for_input", new=AsyncMock(side_effect=[endpoint, (skip_reply, skip_prompt)])) as prompt,
         ):
             await begin_forward(
                 object(),
@@ -159,11 +254,11 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(STS(forward_id).verify())
         self.assertEqual(STS(forward_id).get("limit"), 987)
         setup_message.delete.assert_awaited_once()
-        confirmation_reply.assert_awaited_once()
-        self.assertIn("Review forwarding task", confirmation_reply.await_args.kwargs["text"])
+        confirmation_reply.assert_not_awaited()
+        self.assertIn("Review forwarding task", skip_prompt.edit_text.await_args.args[0])
         callbacks = [
             button.callback_data
-            for row in confirmation_reply.await_args.kwargs["reply_markup"].inline_keyboard
+            for row in skip_prompt.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
             for button in row
         ]
         self.assertIn(f"continue_public_{forward_id}", callbacks)
