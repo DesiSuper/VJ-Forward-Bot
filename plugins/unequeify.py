@@ -14,6 +14,7 @@ from database import db
 from messages import Script
 
 from .clients import CLIENT, get_client
+from .prompts import ask as prompt_for_input
 
 CLIENT = CLIENT()
 COMPLETED_BTN = InlineKeyboardMarkup(
@@ -71,7 +72,7 @@ async def unequify(client, message):
    _bot = await db.get_userbot(user_id)
    if not _bot:
       return await message.reply("<b>A user account is required for duplicate cleanup.</b> Connect one in <code>/settings → Accounts</code>.")
-   target = await client.ask(user_id, text="<b>Choose a chat to scan</b>\nForward its latest message or send a link to that message.\nSend <code>/cancel</code> to stop.")
+   target = await prompt_for_input(client, user_id, text="<b>Choose a chat to scan</b>\nForward its latest message or send a link to that message.\nSend <code>/cancel</code> to stop.")
    if target.text and target.text.startswith("/"):
       return await message.reply("<b>Cleanup cancelled.</b>")
    elif target.text:
@@ -86,7 +87,7 @@ async def unequify(client, message):
         chat_id = target.forward_from_chat.username or target.forward_from_chat.id
    else:
         return await message.reply_text("<b>Could not identify the chat.</b> Forward a message from it or send a message link.")
-   confirm = await client.ask(user_id, text="<b>Confirm duplicate cleanup</b>\nThis will delete duplicate documents from the selected chat. Send <code>/yes</code> to continue or <code>/no</code> to cancel.")
+   confirm = await prompt_for_input(client, user_id, text="<b>Confirm duplicate cleanup</b>\nThis will delete duplicate documents from the selected chat. Send <code>/yes</code> to continue or <code>/no</code> to cancel.")
    if confirm.text.lower() == '/no':
       return await confirm.reply("<b>Cleanup cancelled.</b>")
    sts = await confirm.reply("<b>Scanning for duplicate documents…</b>")

@@ -18,6 +18,7 @@ from messages import Script
 
 from .ui import InlineKeyboardButton
 from .utils import STS
+from .prompts import ask as prompt_for_input
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ async def begin_forward(bot, message, user_id=None, selected_destination=None):
        toid = channels[0]['chat_id']
        to_title = channels[0]['title']
     try:
-        fromid = await bot.ask(message.chat.id, Script.FROM_MSG, filters=filters.all, timeout=600)
+        fromid = await prompt_for_input(bot, message.chat.id, Script.FROM_MSG, filters=filters.all, timeout=600)
     except TimeoutError:
         return await message.reply_text("<b>Source selection timed out.</b> Start again with <code>/forward</code>.")
     if fromid.text and fromid.text.strip().lower() == "/cancel":
@@ -121,7 +122,7 @@ async def begin_forward(bot, message, user_id=None, selected_destination=None):
         logger.exception("Could not resolve forwarding source for user %s", user_id)
         return await message.reply("<b>Could not load that chat.</b> Check the source link and connected account access.")
     try:
-        skipno = await bot.ask(
+        skipno = await prompt_for_input(bot,
             message.chat.id,
             Script.SKIP_MSG,
             filters=filters.text,

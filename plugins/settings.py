@@ -13,6 +13,7 @@ from message_filter_presets import filters_for_preset
 
 from .clients import CLIENT, get_configs, parse_buttons, update_configs
 from .db import connect_user_db
+from .prompts import InputPromptAlreadyActive, ask as prompt_for_input
 
 CLIENT = CLIENT()
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ async def settings_query(bot, query):
   elif type == "custom_gap":
      await query.answer()
      await query.message.delete()
-     answer = await bot.ask(
+     answer = await prompt_for_input(bot,
          user_id,
          "<b>Enter a delay range in seconds.</b>\n"
          "Examples: <code>5-15</code> for a random delay, or <code>8</code> for a fixed delay.\n"
@@ -124,6 +125,11 @@ async def settings_query(bot, query):
      # it first left users with a blank chat if ask/listener setup failed.
      try:
         connected = await CLIENT.add_bot(bot, query)
+     except InputPromptAlreadyActive:
+        return await bot.send_message(
+            user_id,
+            "<b>A bot setup prompt is already open.</b> Reply to that prompt, or send <code>/cancel</code>, before starting another.",
+        )
      except Exception:
         logger.exception("Could not start bot connection flow for user %s", user_id)
         return await bot.send_message(
@@ -173,7 +179,7 @@ async def settings_query(bot, query):
      await query.answer()
      await query.message.delete()
      try:
-         chat_ids = await bot.ask(
+         chat_ids = await prompt_for_input(bot,
              chat_id=user_id,
              text="<b>Add a destination</b>\n\nForward a message from the group or channel where the connected account can post.\nSend <code>/cancel</code> to stop.",
              timeout=600,
@@ -292,7 +298,7 @@ async def settings_query(bot, query):
 
   elif type=="addcaption":
      await query.message.delete()
-     caption = await bot.ask(query.message.chat.id, "<b>Send your caption template.</b>\nUse <code>{filename}</code>, <code>{size}</code>, or <code>{caption}</code> as needed.\nSend <code>/cancel</code> to stop.")
+     caption = await prompt_for_input(bot, query.message.chat.id, "<b>Send your caption template.</b>\nUse <code>{filename}</code>, <code>{size}</code>, or <code>{caption}</code> as needed.\nSend <code>/cancel</code> to stop.")
      if caption.text=="/cancel":
         return await caption.reply_text(
                   "<b>Setup cancelled.</b>",
@@ -327,7 +333,7 @@ async def settings_query(bot, query):
 
   elif type=="addbutton":
      await query.message.delete()
-     ask = await bot.ask(user_id, text="<b>Send a button in this format:</b>\n<code>[Button][buttonurl:https://example.com]</code>\n\nSend <code>/cancel</code> to stop.")
+     ask = await prompt_for_input(bot, user_id, text="<b>Send a button in this format:</b>\n<code>[Button][buttonurl:https://example.com]</code>\n\nSend <code>/cancel</code> to stop.")
      button = parse_buttons(ask.text.html)
      if not button:
         return await ask.reply("<b>Invalid button format.</b> Please send a label and a valid URL.")
@@ -368,7 +374,7 @@ async def settings_query(bot, query):
 
   elif type=="addurl":
      await query.message.delete()
-     uri = await bot.ask(user_id, "<b>Send your MongoDB connection URI.</b>\n\nThe URI is stored in your bot settings. Send <code>/cancel</code> to stop.", link_preview_options=LinkPreviewOptions(is_disabled=True))
+     uri = await prompt_for_input(bot, user_id, "<b>Send your MongoDB connection URI.</b>\n\nThe URI is stored in your bot settings. Send <code>/cancel</code> to stop.", link_preview_options=LinkPreviewOptions(is_disabled=True))
      if uri.text=="/cancel":
         return await uri.reply_text(
                   "<b>Setup cancelled.</b>",
@@ -471,7 +477,7 @@ async def settings_query(bot, query):
 
   elif type == "add_extension":
     await query.message.delete()
-    ext = await bot.ask(user_id, text="<b>Enter file extensions separated by spaces.</b>\nExample: <code>mkv zip pdf</code>\nSend <code>/cancel</code> to stop.")
+    ext = await prompt_for_input(bot, user_id, text="<b>Enter file extensions separated by spaces.</b>\nExample: <code>mkv zip pdf</code>\nSend <code>/cancel</code> to stop.")
     if ext.text == '/cancel':
        return await ext.reply_text(
                   "<b>Setup cancelled.</b>",
@@ -517,7 +523,7 @@ async def settings_query(bot, query):
                                    reply_markup=InlineKeyboardMarkup(buttons))
   elif type == "add_keyword":
     await query.message.delete()
-    ask = await bot.ask(user_id, text="<b>Enter keywords separated by spaces.</b>\nFiles whose names contain these words will be skipped.\nSend <code>/cancel</code> to stop.")
+    ask = await prompt_for_input(bot, user_id, text="<b>Enter keywords separated by spaces.</b>\nFiles whose names contain these words will be skipped.\nSend <code>/cancel</code> to stop.")
     if ask.text == '/cancel':
        return await ask.reply_text(
                   "<b>Setup cancelled.</b>",

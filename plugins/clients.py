@@ -17,6 +17,7 @@ from pyrogram.types import InlineKeyboardMarkup, Message
 from config import Config
 from database import db
 from .ui import InlineKeyboardButton
+from .prompts import ask as prompt_for_input
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -31,7 +32,7 @@ class CLIENT:
   async def add_bot(self, bot, message):
      user_id = int(message.from_user.id)
      try:
-        prompt = await bot.ask(chat_id=user_id, text=BOT_TOKEN_TEXT, filters=filters.text, timeout=600)
+        prompt = await prompt_for_input(bot, chat_id=user_id, text=BOT_TOKEN_TEXT, filters=filters.text, timeout=600)
      except asyncio.TimeoutError:
         await bot.send_message(user_id, "<b>Bot setup timed out. Start again from Settings when ready.</b>")
         return
@@ -87,7 +88,7 @@ class CLIENT:
          "Only continue with an account you own. OTP and password are used only to sign in; a reusable session credential is then saved in this bot's database.",
      )
      try:
-        phone_prompt = await bot.ask(
+        phone_prompt = await prompt_for_input(bot,
             chat_id=user_id,
             text="<b>Enter your phone number with country code.</b>\nExample: <code>+12025550123</code>\nSend <code>/cancel</code> to stop.",
             filters=filters.text,
@@ -109,7 +110,7 @@ class CLIENT:
         connected = True
         await phone_prompt.reply_text("<b>Sending a sign-in code…</b>")
         code = await login_client.send_code(phone_number)
-        code_prompt = await bot.ask(
+        code_prompt = await prompt_for_input(bot,
             user_id,
             "<b>Enter the Telegram sign-in code.</b>\n"
             "For a code <code>12345</code>, send <code>1 2 3 4 5</code>.\n"
@@ -124,7 +125,7 @@ class CLIENT:
         try:
             await login_client.sign_in(phone_number, code.phone_code_hash, phone_code)
         except SessionPasswordNeeded:
-            password_prompt = await bot.ask(
+            password_prompt = await prompt_for_input(bot,
                 user_id,
                 "<b>Two-step verification is enabled.</b> Enter your password to continue, or send <code>/cancel</code>.",
                 filters=filters.text,
