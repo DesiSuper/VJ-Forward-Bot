@@ -3,7 +3,7 @@ import asyncio
 import logging
 from html import escape
 
-from pyrogram import Client, filters
+from pyrogram import Client, enums, filters
 from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
 
 from .ui import InlineKeyboardButton
@@ -161,20 +161,130 @@ async def settings_query(bot, query):
         ),
      )
 
-  elif type=="channels":
+  elif type == "channels":
+     destinations = await db.get_user_channels(user_id)
+     sources = (await get_configs(user_id)).get("sources") or []
+     destination_names = ", ".join(escape(str(item.get("title") or item["chat_id"])) for item in destinations[:4]) or "None saved"
+     source_names = ", ".join(escape(str(item.get("title") or item["chat_id"])) for item in sources[:4]) or "None saved"
+     buttons = [
+         [InlineKeyboardButton(f"📥 Destination channels ({len(destinations)})", callback_data="settings#destinations")],
+         [InlineKeyboardButton(f"📤 Source channels ({len(sources)})", callback_data="settings#sources")],
+         [InlineKeyboardButton("⬅️ Back", callback_data="settings#main")],
+     ]
+     await query.message.edit_text(
+         "<b>📣 Channels</b>\n\n"
+         f"<b>Destinations:</b> {destination_names}\n"
+         f"<b>Sources:</b> {source_names}\n\n"
+         "Manage saved source and destination channels here.",
+         reply_markup=InlineKeyboardMarkup(buttons),
+     )
+
+  elif type == "destinations":
      buttons = []
      channels = await db.get_user_channels(user_id)
      for channel in channels:
-        buttons.append([InlineKeyboardButton(f"📣 {channel['title']}",
+        buttons.append([InlineKeyboardButton(f"📣 {escape(str(channel['title']))}",
                          callback_data=f"settings#editchannels_{channel['chat_id']}")])
-     buttons.append([InlineKeyboardButton('➕ Add destination',
-                      callback_data="settings#addchannel")])
-     buttons.append([InlineKeyboardButton('⬅️ Back',
-                      callback_data="settings#main")])
+     buttons.append([InlineKeyboardButton('➕ Add destination', callback_data="settings#addchannel")])
+     buttons.append([InlineKeyboardButton('⬅️ Back to channels', callback_data="settings#channels")])
      await query.message.edit_text(
-       "<b>📣 Destinations</b>\n\n"
-       "Choose a destination to manage it, or add another chat.",
+       "<b>📥 Destination channels</b>\n\n"
+       "Saved destinations are listed below. Add or select one to manage it.",
        reply_markup=InlineKeyboardMarkup(buttons))
+
+  elif type == "sources":
+     sources = (await get_configs(user_id)).get("sources") or []
+     buttons = [
+         [InlineKeyboardButton(
+             f"📤 {escape(str(source.get('title') or source['chat_id']))}",
+             callback_data=f"settings#editsource_{source['chat_id']}",
+         )]
+         for source in sources
+     ]
+     buttons.append([InlineKeyboardButton("➕ Add source channel", callback_data="settings#addsource")])
+     buttons.append([InlineKeyboardButton("⬅️ Back to channels", callback_data="settings#channels")])
+     source_lines = "\n".join(
+         f"• {escape(str(source.get('title') or 'Untitled'))} — <code>{escape(str(source['chat_id']))}</code>"
+         for source in sources
+     ) or "No source channels saved yet."
+     await query.message.edit_text(
+         f"<b>📤 Source channels ({len(sources)})</b>\n\n{source_lines}\n\n"
+         "Select a saved source to manage it or add another.",
+         reply_markup=InlineKeyboardMarkup(buttons),
+     )
+
+  elif type == "addsource":
+     await query.answer()
+     await query.message.delete()
+     try:
+         source_message = await prompt_for_input(
+             bot,
+             user_id,
+             "<b>Add a source channel</b>\n\n"
+             "Forward any message from the channel or group you want to save.\n"
+             "Send <code>/cancel</code> to stop.",
+             filters=filters.all,
+             timeout=600,
+         )
+     except asyncio.TimeoutError:
+         return await bot.send_message(user_id, "<b>Source setup timed out.</b> Start again from Settings → Channels.")
+     if (source_message.text or "").strip().lower() == "/cancel":
+         return await source_message.reply_text(
+             "<b>Source setup cancelled.</b>",
+             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to sources", callback_data="settings#sources")]]),
+         )
+     origin = get_forward_origin(source_message)
+     source_chat = get_forwarded_chat(source_message)
+     if (
+         not getattr(origin, "date", None)
+         or source_chat is None
+         or source_chat.type not in {
+             enums.ChatType.CHANNEL,
+             enums.ChatType.GROUP,
+             enums.ChatType.SUPERGROUP,
+             enums.ChatType.FORUM,
+         }
+     ):
+         return await source_message.reply_text(
+             "<b>That message was not forwarded from a source.</b> Forward a message from a channel or group."
+         )
+     source_id = source_chat.id
+     sources = (await get_configs(user_id)).get("sources") or []
+     if any(str(source.get("chat_id")) == str(source_id) for source in sources):
+         notice = "<b>This source channel is already saved.</b>"
+     else:
+         sources.append({"chat_id": source_id, "title": source_chat.title or str(source_id)})
+         await update_configs(user_id, "sources", sources)
+         notice = "<b>✓ Source channel saved.</b>"
+     await source_message.reply_text(
+         notice,
+         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ View source channels", callback_data="settings#sources")]]),
+     )
+
+  elif type.startswith("editsource_"):
+     source_id = type.split("_", 1)[1]
+     sources = (await get_configs(user_id)).get("sources") or []
+     source = next((item for item in sources if str(item.get("chat_id")) == source_id), None)
+     if source is None:
+         return await query.answer("That source is no longer saved.", show_alert=True)
+     buttons = [
+         [InlineKeyboardButton("🗑️ Remove source", callback_data=f"settings#removesource_{source_id}")],
+         [InlineKeyboardButton("⬅️ Back to source channels", callback_data="settings#sources")],
+     ]
+     await query.message.edit_text(
+         f"<b>📤 Source channel details</b>\n\n"
+         f"<b>Name:</b> {escape(str(source.get('title') or 'Untitled'))}\n"
+         f"<b>Chat ID:</b> <code>{escape(str(source_id))}</code>",
+         reply_markup=InlineKeyboardMarkup(buttons),
+     )
+
+  elif type.startswith("removesource_"):
+     source_id = type.split("_", 1)[1]
+     configs = await get_configs(user_id)
+     sources = [source for source in (configs.get("sources") or []) if str(source.get("chat_id")) != source_id]
+     await db.update_configs(user_id, {**configs, "sources": sources})
+     buttons = [[InlineKeyboardButton("⬅️ Back to source channels", callback_data="settings#sources")]]
+     await query.message.edit_text("<b>✓ Source channel removed.</b>", reply_markup=InlineKeyboardMarkup(buttons))
 
   elif type=="addchannel":
      await query.answer()
@@ -190,7 +300,9 @@ async def settings_query(bot, query):
      if not chat_ids.text or chat_ids.text.strip().lower() == "/cancel":
         return await chat_ids.reply_text(
             "<b>Setup cancelled.</b>",
-            reply_markup=InlineKeyboardMarkup(buttons),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("⬅️ Back to destination channels", callback_data="settings#destinations")]]
+            ),
         )
      origin = get_forward_origin(chat_ids)
      if not getattr(origin, "date", None):
@@ -210,7 +322,7 @@ async def settings_query(bot, query):
          user_id,
          "<b>✓ Destination added</b>" if chat else "<b>This destination is already saved.</b>",
          reply_markup=InlineKeyboardMarkup(
-             [[InlineKeyboardButton('⬅️ Back to destinations', callback_data="settings#channels")]]
+             [[InlineKeyboardButton('⬅️ Back to destination channels', callback_data="settings#destinations")]]
          ),
      )
 
@@ -251,7 +363,7 @@ async def settings_query(bot, query):
      chat = await db.get_channel_details(user_id, chat_id)
      buttons = [[InlineKeyboardButton('🗑️ Remove destination', callback_data=f"settings#removechannel_{chat_id}")
                ],
-               [InlineKeyboardButton('⬅️ Back', callback_data="settings#channels")]]
+               [InlineKeyboardButton('⬅️ Back', callback_data="settings#destinations")]]
      await query.message.edit_text(
         f"<b>📣 Destination details</b>\n\n<b>Name:</b> <code>{chat['title']}</code>\n<b>Chat ID:</b> <code>{chat['chat_id']}</code>\n<b>Username:</b> {chat['username']}",
         reply_markup=InlineKeyboardMarkup(buttons))
@@ -260,8 +372,10 @@ async def settings_query(bot, query):
      chat_id = type.split('_')[1]
      await db.remove_channel(user_id, chat_id)
      await query.message.edit_text(
-        "<b>✓ Changes saved</b>",
-        reply_markup=InlineKeyboardMarkup(buttons))
+        "<b>✓ Destination removed.</b>",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("⬅️ Back to destination channels", callback_data="settings#destinations")]]
+        ))
 
   elif type=="caption":
      buttons = []
@@ -524,11 +638,17 @@ async def settings_dashboard(user_id, continue_task_id=None):
     destination_summary = ", ".join(destination_names[:3]) or "None"
     if len(destination_names) > 3:
         destination_summary += f" and {len(destination_names) - 3} more"
+    sources = config.get("sources") or []
+    source_names = [escape(str(item.get("title") or item.get("chat_id"))) for item in sources]
+    source_summary = ", ".join(source_names[:3]) or "None"
+    if len(source_names) > 3:
+        source_summary += f" and {len(source_names) - 3} more"
 
     text = (
         "<b>⚙️ All forwarding settings</b>\n\n"
         f"<b>Account:</b> {account_summary}\n"
-        f"<b>Destinations ({len(destinations)}):</b> {destination_summary}\n\n"
+        f"<b>Destination channels ({len(destinations)}):</b> {destination_summary}\n"
+        f"<b>Source channels ({len(sources)}):</b> {source_summary}\n\n"
         f"{format_forwarding_settings(config)}\n\n"
         "Tap a setting below to change it. Changes save immediately."
     )
@@ -537,7 +657,7 @@ async def settings_dashboard(user_id, continue_task_id=None):
     keyboard = [
         [
             InlineKeyboardButton("🤖 Accounts", callback_data="settings#bots"),
-            InlineKeyboardButton("📣 Destinations", callback_data="settings#channels"),
+            InlineKeyboardButton("📣 Channels", callback_data="settings#channels"),
         ],
         [
             message_type_toggle("📝 Text", selected_filters.get("text", True), "text"),
