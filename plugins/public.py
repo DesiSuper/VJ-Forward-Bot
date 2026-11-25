@@ -18,6 +18,7 @@ from messages import Script
 
 from .ui import InlineKeyboardButton
 from .utils import STS, get_forward_origin, get_forwarded_chat
+from .clients import update_configs
 from .prompts import ask as prompt_for_input
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,6 @@ async def choose_destination(bot, query):
     if destination is None:
         return await query.answer("That destination is no longer available.", show_alert=True)
     await query.answer()
-    await query.message.edit_text(f"✅ Destination selected: <b>{escape(str(destination['title']))}</b>")
     return await begin_forward(
         bot,
         query.message,
@@ -51,7 +51,157 @@ async def choose_destination(bot, query):
     )
 
 
-async def begin_forward(bot, message, user_id=None, selected_destination=None):
+@Client.on_callback_query(filters.regex(r"^choose_source#"))
+async def choose_source(bot, query):
+    user_id = query.from_user.id
+    if query.message.chat.id != user_id:
+        return await query.answer("Open the bot in a private chat to choose a source.", show_alert=True)
+    _, destination_id, source_id = query.data.split("#", 2)
+    destination, source = await _get_saved_destination_source(user_id, destination_id, source_id)
+    if destination is None or source is None:
+        return await query.answer("That saved chat is no longer available.", show_alert=True)
+    await query.answer()
+    return await begin_forward(
+        bot,
+        query.message,
+        user_id=user_id,
+        selected_destination=(destination["chat_id"], destination["title"]),
+        selected_source=source,
+    )
+
+
+@Client.on_callback_query(filters.regex(r"^add_source#"))
+async def add_source(bot, query):
+    user_id = query.from_user.id
+    if query.message.chat.id != user_id:
+        return await query.answer("Open the bot in a private chat to add a source.", show_alert=True)
+    _, destination_id, mode = query.data.split("#", 2)
+    destination = await _get_destination(user_id, destination_id)
+    if destination is None:
+        return await query.answer("That destination is no longer available.", show_alert=True)
+    await query.answer()
+    return await begin_forward(
+        bot,
+        query.message,
+        user_id=user_id,
+        selected_destination=(destination["chat_id"], destination["title"]),
+        save_new_source=mode == "save",
+    )
+
+
+@Client.on_callback_query(filters.regex(r"^manage_sources#"))
+async def manage_sources(bot, query):
+    user_id = query.from_user.id
+    if query.message.chat.id != user_id:
+        return await query.answer("Open the bot in a private chat to manage sources.", show_alert=True)
+    destination_id = query.data.split("#", 1)[1]
+    destination = await _get_destination(user_id, destination_id)
+    if destination is None:
+        return await query.answer("That destination is no longer available.", show_alert=True)
+    await query.answer()
+    return await show_source_manager(query.message, user_id, destination)
+
+
+@Client.on_callback_query(filters.regex(r"^back_to_sources#"))
+async def back_to_sources(bot, query):
+    user_id = query.from_user.id
+    if query.message.chat.id != user_id:
+        return await query.answer("Open the bot in a private chat to continue.", show_alert=True)
+    destination = await _get_destination(user_id, query.data.split("#", 1)[1])
+    if destination is None:
+        return await query.answer("That destination is no longer available.", show_alert=True)
+    sources = (await db.get_configs(user_id)).get("sources") or []
+    await query.answer()
+    return await query.message.edit_text(
+        f"<b>📚 Choose a source for {escape(str(destination['title']))}</b>",
+        reply_markup=source_picker_markup(sources, destination["chat_id"]),
+    )
+
+
+@Client.on_callback_query(filters.regex(r"^remove_source#"))
+async def remove_source(bot, query):
+    user_id = query.from_user.id
+    if query.message.chat.id != user_id:
+        return await query.answer("Open the bot in a private chat to manage sources.", show_alert=True)
+    _, destination_id, source_id = query.data.split("#", 2)
+    destination = await _get_destination(user_id, destination_id)
+    if destination is None:
+        return await query.answer("That destination is no longer available.", show_alert=True)
+    configs = await db.get_configs(user_id)
+    sources = configs.get("sources") or []
+    sources = [source for source in sources if str(source.get("chat_id")) != source_id]
+    await db.update_configs(user_id, {**configs, "sources": sources})
+    await query.answer("Saved source removed.")
+    return await show_source_manager(query.message, user_id, destination)
+
+
+async def _get_destination(user_id, destination_id):
+    channels = await db.get_user_channels(user_id)
+    return next((item for item in channels if str(item["chat_id"]) == str(destination_id)), None)
+
+
+async def _get_saved_destination_source(user_id, destination_id, source_id):
+    destination = await _get_destination(user_id, destination_id)
+    sources = (await db.get_configs(user_id)).get("sources") or []
+    source = next((item for item in sources if str(item.get("chat_id")) == str(source_id)), None)
+    return destination, source
+
+
+def source_picker_markup(sources, destination_id):
+    buttons = [
+        [InlineKeyboardButton(
+            f"📚 {escape(str(source.get('title') or source['chat_id']))}",
+            callback_data=f"choose_source#{destination_id}#{source['chat_id']}",
+        )]
+        for source in sources
+    ]
+    buttons.extend(
+        [
+            [InlineKeyboardButton("➕ Add and save a new source", callback_data=f"add_source#{destination_id}#save")],
+            [InlineKeyboardButton("🔗 Use another source once", callback_data=f"add_source#{destination_id}#once")],
+            [InlineKeyboardButton("🗑️ Remove a saved source", callback_data=f"manage_sources#{destination_id}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="choose_destination#cancel")],
+        ]
+    )
+    return InlineKeyboardMarkup(buttons)
+
+
+def source_manager_markup(sources, destination_id):
+    buttons = [
+        [InlineKeyboardButton(
+            f"🗑️ {escape(str(source.get('title') or source['chat_id']))}",
+            callback_data=f"remove_source#{destination_id}#{source['chat_id']}",
+        )]
+        for source in sources
+    ]
+    buttons.append([InlineKeyboardButton("⬅️ Keep sources / Back", callback_data=f"back_to_sources#{destination_id}")])
+    return InlineKeyboardMarkup(buttons)
+
+
+async def show_source_manager(message, user_id, destination):
+    sources = (await db.get_configs(user_id)).get("sources") or []
+    if not sources:
+        return await message.edit_text(
+            "<b>No saved sources.</b>",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_sources#{destination['chat_id']}")]]
+            ),
+        )
+    return await message.edit_text(
+        "<b>🗑️ Remove saved sources</b>\n\n"
+        "Tap a source to delete it. Sources not selected here will be kept.",
+        reply_markup=source_manager_markup(sources, destination["chat_id"]),
+    )
+
+
+async def begin_forward(
+    bot,
+    message,
+    user_id=None,
+    selected_destination=None,
+    selected_source=None,
+    save_new_source=None,
+):
     """Run the forwarding setup flow from either /forward or the home menu."""
     user_id = user_id or message.from_user.id
     _bot = await db.get_bot(user_id)
@@ -77,8 +227,28 @@ async def begin_forward(bot, message, user_id=None, selected_destination=None):
     else:
        toid = channels[0]['chat_id']
        to_title = channels[0]['title']
+    saved_sources = (await db.get_configs(user_id)).get("sources") or []
+    if selected_source is None and save_new_source is None:
+        if saved_sources:
+            return await message.reply_text(
+                "<b>📚 Choose a source channel</b>\n"
+                "Pick a saved source, add another, or use a source once without saving it.",
+                reply_markup=source_picker_markup(saved_sources, toid),
+            )
+        save_new_source = True
+
+    if selected_source:
+        prompt_text = (
+            f"<b>Source selected:</b> {escape(str(selected_source.get('title') or 'Saved channel'))}\n\n"
+            "Forward a message from this source or send a link to its latest message.\n"
+            "Send <code>/cancel</code> to stop."
+        )
+    else:
+        prompt_text = Script.FROM_MSG
     try:
-        fromid = await prompt_for_input(bot, message.chat.id, Script.FROM_MSG, filters=filters.all, timeout=600)
+        fromid = await prompt_for_input(
+            bot, message.chat.id, prompt_text, filters=filters.all, timeout=600
+        )
     except TimeoutError:
         return await message.reply_text("<b>Source selection timed out.</b> Start again with <code>/forward</code>.")
     if fromid.text and fromid.text.strip().lower() == "/cancel":
@@ -111,17 +281,34 @@ async def begin_forward(bot, message, user_id=None, selected_destination=None):
         return await message.reply_text(
             "<b>Could not identify the source chat.</b> Forward a group/channel message or send its message link."
         )
+
     try:
-        title = (await bot.get_chat(chat_id)).title
-  #  except ChannelInvalid:
-        #return await fromid.reply("**Given source chat is copyrighted channel/group. you can't forward messages from there**")
+        resolved_source = await bot.get_chat(chat_id)
+        source_id = resolved_source.id
+        title = resolved_source.title or str(source_id)
     except (PrivateChat, ChannelPrivate, ChannelInvalid):
-        title = source_chat.title if source_chat else "private"
+        source_id = source_chat.id if source_chat else chat_id
+        title = source_chat.title if source_chat else str(source_id)
     except (UsernameInvalid, UsernameNotModified):
         return await message.reply('<b>That Telegram link could not be resolved.</b> Check it and try again.')
     except Exception:
         logger.exception("Could not resolve forwarding source for user %s", user_id)
         return await message.reply("<b>Could not load that chat.</b> Check the source link and connected account access.")
+
+    if selected_source:
+        if str(source_id) != str(selected_source.get("chat_id")):
+            return await message.reply_text(
+                "<b>That message is from a different channel.</b> Send a message or link from the saved source you selected."
+            )
+        chat_id = selected_source["chat_id"]
+        source_id = selected_source["chat_id"]
+        title = selected_source.get("title") or title
+    elif save_new_source:
+        source = {"chat_id": source_id, "title": title}
+        if not any(str(item.get("chat_id")) == str(source_id) for item in saved_sources):
+            saved_sources.append(source)
+            await update_configs(user_id, "sources", saved_sources)
+
     try:
         skipno = await prompt_for_input(bot,
             message.chat.id,

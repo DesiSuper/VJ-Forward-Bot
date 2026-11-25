@@ -5,6 +5,7 @@
 ## मुख्य सुविधाएँ
 
 - Public channels और configured bot/user session के ज़रिये forwarding
+- Saved source channels: हर forwarding setup में source चुनें, नया जोड़ें, या पुराना हटाएँ
 - Custom captions, duplicate handling और message filters
 - Text, documents, videos, photos, audio और video notes में से types चुनकर forwarding; voice messages, animations, stickers और polls हमेशा skip होते हैं
 - Custom message buttons उपलब्ध नहीं हैं

@@ -17,6 +17,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_size": 0,
     "extension": None,
     "keywords": None,
+    "sources": [],
     "protect": None,
     "db_uri": None,
     "random_gap": {"min": 0, "max": 0},

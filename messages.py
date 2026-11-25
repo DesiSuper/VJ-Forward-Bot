@@ -20,7 +20,7 @@ Use the buttons below to explore features, configure your destinations, or read 
 • <code>/status</code> — check your setup and active task
 
 <b>Forwarding options</b>
-Custom captions, random inter-message delays, duplicate handling, message-type filters, and size, extension, or keyword rules are available in settings.
+Saved source channels can be selected, added, or removed during each forwarding setup. Custom captions, random inter-message delays, duplicate handling, message-type filters, and size, extension, or keyword rules are available in settings.
 
 For private chats, the connected account must have access to the source. The bot or user account needs the required permissions in the destination."""
 
