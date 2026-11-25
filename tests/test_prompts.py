@@ -11,6 +11,7 @@ class FakeClient:
     def __init__(self):
         self.handlers = []
         self.sent = []
+        self.deleted = []
         self.message_sent = asyncio.Event()
 
     def add_handler(self, handler, group=0):
@@ -20,6 +21,9 @@ class FakeClient:
         self.sent.append(kwargs)
         self.message_sent.set()
         return SimpleNamespace(id=1)
+
+    async def delete_messages(self, chat_id, message_ids):
+        self.deleted.append((chat_id, message_ids))
 
 
 class PromptTests(unittest.IsolatedAsyncioTestCase):
@@ -48,6 +52,31 @@ class PromptTests(unittest.IsolatedAsyncioTestCase):
             await handler.callback(client, incoming)
 
         self.assertIs(await prompt_task, incoming)
+
+    async def test_consumed_prompt_and_reply_can_be_deleted_together(self):
+        client = FakeClient()
+        prompt_task = asyncio.create_task(
+            ask(
+                client,
+                12345,
+                "Forward a source message",
+                filters=filters.all,
+                timeout=2,
+                delete_prompt_and_reply=True,
+            )
+        )
+        await client.message_sent.wait()
+        handler, _ = client.handlers[0]
+        incoming = SimpleNamespace(
+            id=2,
+            chat=SimpleNamespace(id=12345),
+            forward_origin=SimpleNamespace(date=object()),
+        )
+        with self.assertRaises(StopPropagation):
+            await handler.callback(client, incoming)
+
+        self.assertIs(await prompt_task, incoming)
+        self.assertEqual(client.deleted, [(12345, [1, 2])])
 
     async def test_prompt_timeout_cleans_up_waiter(self):
         client = FakeClient()

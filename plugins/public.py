@@ -304,6 +304,7 @@ async def begin_forward(
                     "Send <code>/cancel</code> to stop.",
                     filters=filters.all,
                     timeout=600,
+                    delete_prompt_and_reply=True,
                 )
             except TimeoutError:
                 return await message.reply_text("<b>Source selection timed out.</b> Start again with <code>/forward</code>.")
@@ -327,7 +328,12 @@ async def begin_forward(
     else:
         try:
             fromid = await prompt_for_input(
-                bot, message.chat.id, Script.FROM_MSG, filters=filters.all, timeout=600
+                bot,
+                message.chat.id,
+                Script.FROM_MSG,
+                filters=filters.all,
+                timeout=600,
+                delete_prompt_and_reply=True,
             )
         except TimeoutError:
             return await message.reply_text("<b>Source selection timed out.</b> Start again with <code>/forward</code>.")
@@ -387,6 +393,7 @@ async def begin_forward(
             Script.SKIP_MSG,
             filters=filters.text,
             timeout=600,
+            delete_prompt_and_reply=True,
         )
     except TimeoutError:
         return await message.reply_text("<b>Setup timed out.</b> Start again with <code>/forward</code>.")

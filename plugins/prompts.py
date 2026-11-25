@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import weakref
 from dataclasses import dataclass
 from typing import Any
@@ -21,6 +22,7 @@ class _PendingPrompt:
 
 _PENDING: dict[tuple[int, int], _PendingPrompt] = {}
 _REGISTERED_CLIENTS: weakref.WeakSet[Client] = weakref.WeakSet()
+logger = logging.getLogger(__name__)
 
 
 class InputPromptAlreadyActive(RuntimeError):
@@ -62,6 +64,7 @@ async def ask(
     *,
     filters: Any = None,
     timeout: float | None = None,
+    delete_prompt_and_reply: bool = False,
     **send_options: Any,
 ) -> Message:
     """Send a prompt and wait for the next matching private message.
@@ -77,13 +80,25 @@ async def ask(
     future: asyncio.Future[Message] = asyncio.get_running_loop().create_future()
     pending = _PendingPrompt(future=future, message_filter=filters)
     _PENDING[key] = pending
+    prompt_message = None
+    response = None
     try:
-        await client.send_message(chat_id=chat_id, text=text, **send_options)
+        prompt_message = await client.send_message(chat_id=chat_id, text=text, **send_options)
         if timeout is None:
-            return await future
-        return await asyncio.wait_for(future, timeout=timeout)
+            response = await future
+        else:
+            response = await asyncio.wait_for(future, timeout=timeout)
+        return response
     finally:
         if _PENDING.get(key) is pending:
             _PENDING.pop(key, None)
         if not future.done():
             future.cancel()
+        if delete_prompt_and_reply and prompt_message is not None:
+            message_ids = [prompt_message.id]
+            if response is not None:
+                message_ids.append(response.id)
+            try:
+                await client.delete_messages(chat_id, message_ids)
+            except Exception:
+                logger.debug("Could not delete consumed input prompt in chat %s", chat_id, exc_info=True)
