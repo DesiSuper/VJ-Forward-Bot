@@ -20,7 +20,7 @@ Use the buttons below to explore features, configure your destinations, or read 
 • <code>/status</code> — check your setup and active task
 
 <b>Forwarding options</b>
-Custom captions and buttons, random inter-message delays, duplicate handling, message-type filters, and size, extension, or keyword rules are available in settings.
+Custom captions, random inter-message delays, duplicate handling, message-type filters, and size, extension, or keyword rules are available in settings.
 
 For private chats, the connected account must have access to the source. The bot or user account needs the required permissions in the destination."""
 
@@ -28,7 +28,7 @@ For private chats, the connected account must have access to the source. The bot
 
 1. Open <code>/settings</code> and connect a bot or user account.
 2. Add at least one destination chat. The connected account must be able to post there.
-3. Configure optional filters, captions, or buttons.
+3. Configure optional filters, captions, and forwarding rules.
 4. Run <code>/forward</code> and follow the prompts to select a source and destination.
 
 Use <code>/cancel</code> during setup to leave the current step. A connected user account carries its own security and account risk; only connect an account you control."""

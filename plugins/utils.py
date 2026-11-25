@@ -7,8 +7,6 @@ from typing import Any
 
 from database import db
 
-from .clients import parse_buttons
-
 STATUS: dict[str, dict[str, Any]] = {}
 
 
@@ -80,7 +78,7 @@ class STS:
 
         configs = await db.get_configs(user_id)
         disabled_filters = await db.get_filters(user_id)
-        button = parse_buttons(configs.get("button") or "")
+        button = None
         random_gap = configs.get("random_gap") or {"min": 0, "max": 0}
         if not isinstance(random_gap, dict):
             random_gap = {"min": 0, "max": 0}

@@ -5,8 +5,9 @@
 ## मुख्य सुविधाएँ
 
 - Public channels और configured bot/user session के ज़रिये forwarding
-- Custom caption, buttons, duplicate handling और message filters
-- सभी types, सिर्फ media, video/photo/audio combinations, या individual types (video notes समेत) चुनकर forwarding
+- Custom captions, duplicate handling और message filters
+- Text, documents, videos, photos, audio और video notes में से types चुनकर forwarding; voice messages, animations, stickers और polls हमेशा skip होते हैं
+- Custom message buttons उपलब्ध नहीं हैं
 - Size, extension और keyword filters
 - हर forwarded message के बीच user-configurable random delay (preset या custom range)
 - Bot restart के बाद pending forwarding को resume करना

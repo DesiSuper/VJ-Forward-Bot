@@ -13,7 +13,7 @@ from .ui import InlineKeyboardButton
 from config import temp
 from database import db
 from forwarding_delay import choose_random_gap, normalize_random_gap
-from forward_review import PENDING_REVIEW, format_forwarding_settings
+from forward_review import PENDING_REVIEW
 from messages import Script
 
 from .clients import CLIENT, get_client, iter_messages
@@ -206,17 +206,15 @@ async def review_forwarding_task(bot, query):
         return await query.answer("A forwarding task is already active.", show_alert=True)
 
     await query.answer()
-    config = await db.get_configs(user)
-    from .settings import main_buttons
+    from .settings import settings_dashboard
 
     PENDING_REVIEW[user] = forward_id
-    base_text = query.message.text or "<b>Review forwarding task</b>"
+    dashboard_text, markup = await settings_dashboard(user, forward_id)
     review_text = (
-        f"{base_text}\n\n{format_forwarding_settings(config)}\n\n"
-        "<b>To change an option, open its settings section below.</b> "
+        f"<b>Review forwarding task</b>\n\n{dashboard_text}\n\n"
         "Changes save immediately. Press <b>Continue & start forwarding</b> when ready."
     )
-    await query.message.edit_text(review_text, reply_markup=main_buttons(forward_id))
+    await query.message.edit_text(review_text, reply_markup=markup)
 
 
 @Client.on_callback_query(filters.regex(r"^cancel_public_"))

@@ -18,20 +18,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "extension": None,
     "keywords": None,
     "protect": None,
-    "button": None,
     "db_uri": None,
     "random_gap": {"min": 0, "max": 0},
     "filters": {
-        "poll": True,
+        "poll": False,
         "text": True,
         "audio": True,
-        "voice": True,
+        "voice": False,
         "video_note": True,
         "video": True,
         "photo": True,
         "document": True,
-        "animation": True,
-        "sticker": True,
+        "animation": False,
+        "sticker": False,
     },
 }
 
@@ -179,6 +178,10 @@ class Db:
             stored_filters = stored.get("filters")
             if isinstance(stored_filters, dict):
                 configs["filters"].update(stored_filters)
+        for disabled_type in ("voice", "animation", "sticker", "poll"):
+            configs["filters"][disabled_type] = False
+        # Old custom button settings are deliberately ignored and removed.
+        configs.pop("button", None)
         return configs
 
     async def add_bot(self, datas: dict[str, Any]) -> None:

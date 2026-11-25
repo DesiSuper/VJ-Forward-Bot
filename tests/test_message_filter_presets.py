@@ -20,10 +20,12 @@ class MessageFilterPresetTests(unittest.TestCase):
             {"video", "photo", "audio"},
         )
 
-    def test_media_preset_excludes_text_and_poll(self):
+    def test_removed_message_types_are_not_available_in_presets(self):
+        self.assertFalse({"voice", "animation", "sticker", "poll"} & set(MESSAGE_TYPES))
+
+    def test_media_preset_excludes_text(self):
         result = filters_for_preset("media")
         self.assertFalse(result["text"])
-        self.assertFalse(result["poll"])
         self.assertTrue(result["document"])
         self.assertTrue(result["video"])
         self.assertTrue(result["photo"])

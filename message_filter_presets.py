@@ -8,16 +8,12 @@ MESSAGE_TYPES = (
     "video",
     "photo",
     "audio",
-    "voice",
     "video_note",
-    "animation",
-    "sticker",
-    "poll",
 )
 
 FILTER_PRESETS: dict[str, tuple[str, ...]] = {
     "all": MESSAGE_TYPES,
-    "media": ("document", "video", "photo", "audio", "voice", "video_note", "animation", "sticker"),
+    "media": ("document", "video", "photo", "audio", "video_note"),
     "video_photo_audio": ("video", "photo", "audio"),
     "video": ("video",),
     "photo": ("photo",),

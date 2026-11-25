@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 from config import temp
 from forward_review import format_forwarding_settings
 from plugins.forwarding import review_forwarding_task
-from plugins.settings import main_buttons
 from plugins.utils import STS
 
 
@@ -38,17 +37,6 @@ class ForwardReviewTests(unittest.TestCase):
         self.assertIn("&lt;b&gt;unsafe&lt;/b&gt;", text)
         self.assertNotIn("<b>unsafe</b>", text)
 
-    def test_task_dashboard_has_continue_and_cancel_actions(self):
-        markup = main_buttons("123-456")
-        callback_data = [
-            button.callback_data
-            for row in markup.inline_keyboard
-            for button in row
-            if button.callback_data
-        ]
-        self.assertIn("continue_public_123-456", callback_data)
-        self.assertIn("cancel_public_123-456", callback_data)
-
 
 class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_start_button_shows_settings_and_continue_action(self):
@@ -70,15 +58,21 @@ class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
         query.answer = AsyncMock()
         bot = object()
 
-        with patch("plugins.forwarding.db.get_configs", new=AsyncMock(return_value={
+        mock_config = {
             "filters": {"video": True, "text": False},
             "random_gap": {"min": 0, "max": 0},
-        })):
+        }
+        with (
+            patch("plugins.settings.get_configs", new=AsyncMock(return_value=mock_config)),
+            patch("plugins.settings.db.get_bot", new=AsyncMock(return_value=None)),
+            patch("plugins.settings.db.get_userbot", new=AsyncMock(return_value=None)),
+            patch("plugins.settings.db.get_user_channels", new=AsyncMock(return_value=[])),
+        ):
             await review_forwarding_task(bot, query)
 
         message.edit_text.assert_awaited_once()
         edited_text = message.edit_text.await_args.args[0]
-        self.assertIn("Selected forwarding settings", edited_text)
+        self.assertIn("All forwarding settings", edited_text)
         markup = message.edit_text.await_args.kwargs["reply_markup"]
         callback_data = [
             button.callback_data
@@ -86,7 +80,11 @@ class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
             for button in row
             if button.callback_data
         ]
-        self.assertIn("settings#filters", callback_data)
+        self.assertIn("settings#updatefilter-text-False", callback_data)
+        self.assertFalse(any(
+            "voice" in item or "animation" in item or "sticker" in item or "poll" in item
+            for item in callback_data
+        ))
         self.assertIn(f"continue_public_{forward_id}", callback_data)
         self.assertIn(f"cancel_public_{forward_id}", callback_data)
 

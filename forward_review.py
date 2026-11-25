@@ -15,11 +15,7 @@ MESSAGE_TYPE_LABELS = (
     ("video", "Videos"),
     ("photo", "Photos"),
     ("audio", "Audio"),
-    ("voice", "Voice messages"),
     ("video_note", "Video notes"),
-    ("animation", "Animations"),
-    ("sticker", "Stickers"),
-    ("poll", "Polls"),
 )
 
 
@@ -81,7 +77,6 @@ def format_forwarding_settings(config: dict[str, Any]) -> str:
 
     caption_text = "Custom caption" if config.get("caption") else "Original caption"
     transfer_text = "Forward original messages" if config.get("forward_tag") else "Copy messages"
-    button_text = "Set" if config.get("button") else "Not set"
     keyword_text = _render_values(config.get("keywords"))
     extension_text = _render_values(config.get("extension"))
 
@@ -95,6 +90,7 @@ def format_forwarding_settings(config: dict[str, Any]) -> str:
         f"<b>File size:</b> {size_text}\n"
         f"<b>Excluded keywords:</b> {keyword_text}\n"
         f"<b>Excluded extensions:</b> {extension_text}\n"
-        f"<b>Custom buttons:</b> {button_text}\n"
+        "<b>Always skipped:</b> Voice messages, animations, stickers, and polls\n"
+        "<b>Custom message buttons:</b> Unavailable\n"
         f"<b>Random delay:</b> {gap_text}"
     )

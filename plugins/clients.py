@@ -12,17 +12,15 @@ from pyrogram.errors import (
   PhoneNumberInvalid,
   SessionPasswordNeeded,
 )
-from pyrogram.types import InlineKeyboardMarkup, Message
+from pyrogram.types import Message
 
 from config import Config
 from database import db
-from .ui import InlineKeyboardButton
 from .prompts import ask as prompt_for_input
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-BTN_URL_REGEX = re.compile(r"(\[([^\[]+?)]\[buttonurl:/{0,2}(.+?)(:same)?])")
 BOT_TOKEN_TEXT = "<b>Connect a Telegram bot</b>\n\nCreate a bot with @BotFather, then forward its token message here. Your token is stored for your account only. Send <code>/cancel</code> to stop."
 class CLIENT:
   def __init__(self):
@@ -230,8 +228,10 @@ async def get_configs(user_id):
 
 
 async def update_configs(user_id, key, value):
+  if key in {"voice", "animation", "sticker", "poll", "button"}:
+      return
   current = await db.get_configs(user_id)
-  if key in ['caption', 'duplicate', 'db_uri', 'forward_tag', 'protect', 'min_size', 'max_size', 'extension', 'keywords', 'button', 'random_gap']:
+  if key in ['caption', 'duplicate', 'db_uri', 'forward_tag', 'protect', 'min_size', 'max_size', 'extension', 'keywords', 'random_gap']:
      current[key] = value
   else:
      current['filters'][key] = value
@@ -267,26 +267,3 @@ async def get_client(bot_token, is_bot=True):
     return Client("BOT", Config.API_ID, Config.API_HASH, bot_token=bot_token, in_memory=True)
   else:
     return Client("USERBOT", Config.API_ID, Config.API_HASH, session_string=bot_token)
-
-
-def parse_buttons(text, markup=True):
-    buttons = []
-    for match in BTN_URL_REGEX.finditer(text):
-        n_escapes = 0
-        to_check = match.start(1) - 1
-        while to_check > 0 and text[to_check] == "\\":
-            n_escapes += 1
-            to_check -= 1
-
-        if n_escapes % 2 == 0:
-            if bool(match.group(4)) and buttons:
-                buttons[-1].append(InlineKeyboardButton(
-                    text=match.group(2),
-                    url=match.group(3).replace(" ", "")))
-            else:
-                buttons.append([InlineKeyboardButton(
-                    text=match.group(2),
-                    url=match.group(3).replace(" ", ""))])
-    if markup and buttons:
-       buttons = InlineKeyboardMarkup(buttons)
-    return buttons if buttons else None
