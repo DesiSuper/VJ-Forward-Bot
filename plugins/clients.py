@@ -37,13 +37,13 @@ class CLIENT:
         return
      if not prompt.text or prompt.text.strip().lower() == "/cancel":
         return await prompt.reply_text("<b>Bot setup cancelled.</b>")
-     if not prompt.forward_date:
+     origin = getattr(prompt, "forward_origin", None)
+     if not origin or not getattr(origin, "date", None):
         return await prompt.reply_text(
             "<b>That message was not forwarded.</b> Forward the token message directly from @BotFather."
         )
-     # Pyrogram's legacy forward_from field is None for hidden/unsupported origins.
-     origin = getattr(prompt, "forward_from", None)
-     if not origin or str(origin.id) != "93372553":
+     sender = getattr(origin, "sender_user", None)
+     if not sender or str(sender.id) != "93372553":
         return await prompt.reply_text(
             "<b>Token source could not be verified.</b> Please forward the token message directly from @BotFather."
         )

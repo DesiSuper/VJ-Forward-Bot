@@ -1,5 +1,6 @@
 
 import asyncio
+import logging
 
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
@@ -14,6 +15,7 @@ from .clients import CLIENT, get_configs, parse_buttons, update_configs
 from .db import connect_user_db
 
 CLIENT = CLIENT()
+logger = logging.getLogger(__name__)
 
 
 @Client.on_message(filters.command('settings'))
@@ -117,9 +119,17 @@ async def settings_query(bot, query):
        reply_markup=InlineKeyboardMarkup(buttons))
 
   elif type=="addbot":
-     await query.answer()
-     await query.message.delete()
-     connected = await CLIENT.add_bot(bot, query)
+     await query.answer("I’m opening the bot connection prompt in this chat.")
+     # Keep the Accounts screen visible while the token prompt is sent. Deleting
+     # it first left users with a blank chat if ask/listener setup failed.
+     try:
+        connected = await CLIENT.add_bot(bot, query)
+     except Exception:
+        logger.exception("Could not start bot connection flow for user %s", user_id)
+        return await bot.send_message(
+            user_id,
+            "<b>Could not open bot setup.</b> Please try again from Settings → Accounts.",
+        )
      if connected is not True:
         return
      await bot.send_message(
