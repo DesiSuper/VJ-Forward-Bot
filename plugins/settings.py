@@ -250,12 +250,16 @@ async def settings_query(bot, query):
          )
      source_id = source_chat.id
      sources = (await get_configs(user_id)).get("sources") or []
-     if any(str(source.get("chat_id")) == str(source_id) for source in sources):
-         notice = "<b>This source channel is already saved.</b>"
-     else:
-         sources.append({"chat_id": source_id, "title": source_chat.title or str(source_id)})
-         await update_configs(user_id, "sources", sources)
-         notice = "<b>✓ Source channel saved.</b>"
+     source = next((item for item in sources if str(item.get("chat_id")) == str(source_id)), None)
+     is_new_source = source is None
+     if source is None:
+         source = {"chat_id": source_id, "title": source_chat.title or str(source_id)}
+         sources.append(source)
+     source_message_id = getattr(origin, "message_id", None)
+     if source_message_id is not None:
+         source["last_message_id"] = int(source_message_id)
+     await update_configs(user_id, "sources", sources)
+     notice = "<b>✓ Source channel saved.</b>" if is_new_source else "<b>This source was already saved; its saved message point was refreshed.</b>"
      await source_message.reply_text(
          notice,
          reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ View source channels", callback_data="settings#sources")]]),

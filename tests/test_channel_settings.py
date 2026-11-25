@@ -109,6 +109,7 @@ class ChannelSettingsTests(unittest.IsolatedAsyncioTestCase):
             text=None,
             forward_origin=SimpleNamespace(
                 date=object(),
+                message_id=987,
                 chat=SimpleNamespace(
                     id=-100444,
                     title="New Source",
@@ -130,7 +131,7 @@ class ChannelSettingsTests(unittest.IsolatedAsyncioTestCase):
         save_source.assert_awaited_once_with(
             user_id,
             "sources",
-            [{"chat_id": -100444, "title": "New Source"}],
+            [{"chat_id": -100444, "title": "New Source", "last_message_id": 987}],
         )
         source_message.reply_text.assert_awaited_once()
         self.assertIn("Source channel saved", source_message.reply_text.await_args.args[0])

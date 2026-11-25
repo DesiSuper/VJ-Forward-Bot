@@ -166,6 +166,14 @@ async def _get_saved_destination_source(user_id, destination_id, source_id):
     return destination, source
 
 
+async def _remember_source_message_id(user_id, sources, source_id, message_id):
+    source = next((item for item in sources if str(item.get("chat_id")) == str(source_id)), None)
+    if source is None or source.get("last_message_id") == message_id:
+        return
+    source["last_message_id"] = int(message_id)
+    await update_configs(user_id, "sources", sources)
+
+
 def source_picker_markup(sources, destination_id):
     buttons = [
         [InlineKeyboardButton(
@@ -289,11 +297,15 @@ async def begin_forward(
             last_msg_id = await latest_source_message_id(user_id, chat_id)
         except Exception:
             logger.warning(
-                "Could not automatically read latest message from saved source for user %s; asking for a forwarded message",
+                "Could not automatically read latest message from saved source for user %s; using its saved checkpoint if available",
                 user_id,
                 exc_info=True,
             )
             last_msg_id = None
+        if last_msg_id is not None:
+            await _remember_source_message_id(user_id, saved_sources, source_id, last_msg_id)
+        elif selected_source.get("last_message_id") is not None:
+            last_msg_id = int(selected_source["last_message_id"])
         if last_msg_id is None:
             try:
                 endpoint_message = await prompt_for_input(
@@ -325,6 +337,7 @@ async def begin_forward(
                 return await message.reply_text(
                     "<b>This forwarded message hides its original ID.</b> Try another message from the saved source."
                 )
+            await _remember_source_message_id(user_id, saved_sources, source_id, last_msg_id)
     else:
         try:
             fromid = await prompt_for_input(
@@ -382,10 +395,16 @@ async def begin_forward(
             return await message.reply("<b>Could not load that chat.</b> Check the source link and connected account access.")
 
         if save_new_source:
-            source = {"chat_id": source_id, "title": title}
-            if not any(str(item.get("chat_id")) == str(source_id) for item in saved_sources):
+            source = next(
+                (item for item in saved_sources if str(item.get("chat_id")) == str(source_id)),
+                None,
+            )
+            if source is None:
+                source = {"chat_id": source_id, "title": title}
                 saved_sources.append(source)
-                await update_configs(user_id, "sources", saved_sources)
+            source["title"] = title
+            source["last_message_id"] = int(last_msg_id)
+            await update_configs(user_id, "sources", saved_sources)
 
     try:
         skipno = await prompt_for_input(bot,
