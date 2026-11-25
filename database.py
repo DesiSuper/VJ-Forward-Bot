@@ -157,38 +157,87 @@ class Db:
         user = await self.col.find_one({"id": int(id)}, {"ban_status": 1})
         return (user or {}).get("ban_status", {"is_banned": False, "ban_reason": ""})
 
-    async def get_global_blacklist(self) -> dict[str, list[str]]:
-        """Get the shared blacklist applied to every group."""
+    @staticmethod
+    def _blacklist_field(kind: str) -> str:
+        field = {"word": "words", "url": "urls"}.get(kind)
+        if field is None:
+            raise ValueError("kind must be 'word' or 'url'")
+        return field
+
+    @staticmethod
+    def _normalize_blacklist_entries(entries: list[Any]) -> list[dict[str, Any]]:
+        """Read both legacy string entries and entries with per-rule delays."""
+        normalized = []
+        for entry in entries:
+            if isinstance(entry, str):
+                normalized.append({"value": entry, "delay_seconds": 0})
+            elif isinstance(entry, dict) and isinstance(entry.get("value"), str):
+                try:
+                    delay_seconds = max(0, int(entry.get("delay_seconds", 0)))
+                except (TypeError, ValueError):
+                    delay_seconds = 0
+                normalized.append(
+                    {"value": entry["value"], "delay_seconds": delay_seconds}
+                )
+        return normalized
+
+    async def get_global_blacklist(self) -> dict[str, list[dict[str, Any]]]:
+        """Get the shared blacklist and each entry's deletion delay."""
         self._require_database()
         document = await self.moderation.find_one(
             {"_id": "global_blacklist"}, {"words": 1, "urls": 1}
         )
         document = document or {}
         return {
-            "words": list(document.get("words") or []),
-            "urls": list(document.get("urls") or []),
+            "words": self._normalize_blacklist_entries(document.get("words") or []),
+            "urls": self._normalize_blacklist_entries(document.get("urls") or []),
         }
 
-    async def add_global_blacklist_entry(self, kind: str, value: str) -> None:
-        """Add one normalized word or URL pattern to the shared blacklist."""
+    async def add_global_blacklist_entry(
+        self, kind: str, value: str, delay_seconds: int = 0
+    ) -> None:
+        """Add or replace a normalized shared rule and its deletion delay."""
         self._require_database()
-        field = {"word": "words", "url": "urls"}.get(kind)
-        if field is None:
-            raise ValueError("kind must be 'word' or 'url'")
+        field = self._blacklist_field(kind)
+        # Remove old-format strings and prior delay settings before inserting the
+        # normalized object, so an entry cannot accumulate conflicting delays.
+        await self.moderation.update_one(
+            {"_id": "global_blacklist"}, {"$pull": {field: value}}
+        )
+        await self.moderation.update_one(
+            {"_id": "global_blacklist"}, {"$pull": {field: {"value": value}}}
+        )
         await self.moderation.update_one(
             {"_id": "global_blacklist"},
-            {"$addToSet": {field: value}},
+            {
+                "$addToSet": {
+                    field: {"value": value, "delay_seconds": max(0, int(delay_seconds))}
+                }
+            },
             upsert=True,
         )
 
-    async def remove_global_blacklist_entry(self, kind: str, value: str) -> None:
-        """Remove one normalized word or URL pattern from the shared blacklist."""
+    async def set_global_blacklist_entry_delay(
+        self, kind: str, value: str, delay_seconds: int
+    ) -> bool:
+        """Update one existing rule's delay without changing its value."""
         self._require_database()
-        field = {"word": "words", "url": "urls"}.get(kind)
-        if field is None:
-            raise ValueError("kind must be 'word' or 'url'")
+        blacklist = await self.get_global_blacklist()
+        field = self._blacklist_field(kind)
+        if not any(entry["value"] == value for entry in blacklist[field]):
+            return False
+        await self.add_global_blacklist_entry(kind, value, delay_seconds)
+        return True
+
+    async def remove_global_blacklist_entry(self, kind: str, value: str) -> None:
+        """Remove one normalized word or URL pattern, including legacy entries."""
+        self._require_database()
+        field = self._blacklist_field(kind)
         await self.moderation.update_one(
             {"_id": "global_blacklist"}, {"$pull": {field: value}}
+        )
+        await self.moderation.update_one(
+            {"_id": "global_blacklist"}, {"$pull": {field: {"value": value}}}
         )
 
     async def get_all_users(self):

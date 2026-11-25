@@ -15,18 +15,43 @@ class DatabaseFilterEnforcementTests(unittest.IsolatedAsyncioTestCase):
         database.moderation.update_one = AsyncMock()
 
         blacklist = await database.get_global_blacklist()
-        await database.add_global_blacklist_entry("word", "spam phrase")
+        await database.add_global_blacklist_entry("word", "spam phrase", 30)
         await database.remove_global_blacklist_entry("url", "spam.example")
 
-        self.assertEqual(blacklist, {"words": ["spam phrase"], "urls": ["spam.example"]})
+        self.assertEqual(
+            blacklist,
+            {
+                "words": [{"value": "spam phrase", "delay_seconds": 0}],
+                "urls": [{"value": "spam.example", "delay_seconds": 0}],
+            },
+        )
         database.moderation.find_one.assert_awaited_once_with(
             {"_id": "global_blacklist"}, {"words": 1, "urls": 1}
         )
-        self.assertEqual(database.moderation.update_one.await_args_list[0].args,
-                         ({"_id": "global_blacklist"}, {"$addToSet": {"words": "spam phrase"}}))
-        self.assertEqual(database.moderation.update_one.await_args_list[0].kwargs, {"upsert": True})
-        self.assertEqual(database.moderation.update_one.await_args_list[1].args,
-                         ({"_id": "global_blacklist"}, {"$pull": {"urls": "spam.example"}}))
+        updates = database.moderation.update_one.await_args_list
+        self.assertEqual(
+            updates[0].args,
+            ({"_id": "global_blacklist"}, {"$pull": {"words": "spam phrase"}}),
+        )
+        self.assertEqual(
+            updates[2].args,
+            (
+                {"_id": "global_blacklist"},
+                {"$addToSet": {"words": {"value": "spam phrase", "delay_seconds": 30}}},
+            ),
+        )
+        self.assertEqual(updates[2].kwargs, {"upsert": True})
+        self.assertEqual(
+            updates[3].args,
+            ({"_id": "global_blacklist"}, {"$pull": {"urls": "spam.example"}}),
+        )
+        self.assertEqual(
+            updates[4].args,
+            (
+                {"_id": "global_blacklist"},
+                {"$pull": {"urls": {"value": "spam.example"}}},
+            ),
+        )
 
     async def test_legacy_configs_cannot_enable_removed_message_types_or_buttons(self):
         database = Db("", "")
@@ -50,7 +75,10 @@ class DatabaseFilterEnforcementTests(unittest.IsolatedAsyncioTestCase):
         config = await database.get_configs(42)
 
         self.assertEqual(
-            {key: config["filters"][key] for key in ("voice", "animation", "sticker", "poll")},
+            {
+                key: config["filters"][key]
+                for key in ("voice", "animation", "sticker", "poll")
+            },
             {"voice": False, "animation": False, "sticker": False, "poll": False},
         )
         self.assertFalse(config["filters"]["video"])
