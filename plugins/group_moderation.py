@@ -207,19 +207,34 @@ async def _is_group_admin(client, message) -> bool:
 
 def _blacklist_help() -> str:
     return (
-        "<b>Global group blacklist</b>\n"
-        "Entries apply in every group. Messages are deleted silently after the "
-        "delay configured on each entry (default: immediately).\n\n"
-        "<code>/blacklist word add phrase</code>\n"
-        "<code>/blacklist url add spam.example</code>\n"
-        "<code>/blacklist word remove phrase</code>\n"
-        "<code>/blacklist url remove spam.example</code>\n"
-        "<code>/blacklist list</code>\n"
-        "Set a rule's delete time separately with "
-        "<code>/blacklistdelay word phrase 30s</code> or "
-        "<code>/blacklistdelay url spam.example 2m</code>. "
-        "Delay units: seconds (s) or minutes (m), maximum 24 hours."
+        "<b>📋 Group moderation help</b>\n\n"
+        "The blacklist is shared across all groups. Group admins can manage it; "
+        "matching messages are silently deleted. Entries stay blocked until removed.\n\n"
+        "<b>Add entries</b>\n"
+        "<code>/blacklist word add bad phrase</code>\n"
+        "<code>/blacklist url add instagram.com</code>\n"
+        "A domain blocks all its paths and subdomains; for example, "
+        "<code>instagram.com</code> also matches <code>instagram.com/reel/…</code> "
+        "and <code>www.instagram.com</code>. No <code>/*</code> is needed.\n\n"
+        "<b>Set per-entry delete delay</b>\n"
+        "<code>/blacklistdelay word bad phrase 30s</code>\n"
+        "<code>/blacklistdelay url instagram.com 2m</code>\n"
+        "Use <code>0s</code> for immediate deletion. The delay is how long a "
+        "matching message waits before deletion; it does not expire the blacklist entry.\n\n"
+        "<b>Remove or view entries</b>\n"
+        "<code>/blacklist word remove bad phrase</code>\n"
+        "<code>/blacklist url remove instagram.com</code>\n"
+        "<code>/blacklist list</code> (or <code>/blacklist list word</code> / "
+        "<code>/blacklist list url</code>)\n\n"
+        "Time formats: seconds (<code>30s</code>) or minutes (<code>2m</code>), "
+        "up to 24 hours. The bot needs permission to delete group messages."
     )
+
+
+@Client.on_message(filters.group & filters.command("ghelp"))
+async def group_help(client, message):
+    """Show group admins and members how group moderation commands work."""
+    return await message.reply_text(_blacklist_help())
 
 
 def _normalize_entry(kind: str, value: str) -> str:

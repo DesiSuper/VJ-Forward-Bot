@@ -9,6 +9,7 @@ from plugins.group_moderation import (
     _delete_message_after,
     _extract_urls,
     enforce_global_blacklist,
+    group_help,
     manage_global_blacklist,
     set_global_blacklist_delay,
     matching_entry_delays,
@@ -72,6 +73,17 @@ class GroupBlacklistMatchingTests(unittest.TestCase):
 
 
 class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ghelp_lists_management_and_delay_commands_with_examples(self):
+        message = SimpleNamespace(reply_text=AsyncMock())
+
+        await group_help(object(), message)
+
+        help_text = message.reply_text.await_args.args[0]
+        self.assertIn("/blacklist url add instagram.com", help_text)
+        self.assertIn("/blacklistdelay url instagram.com 2m", help_text)
+        self.assertIn("does not expire the blacklist entry", help_text)
+        self.assertIn("/blacklist list", help_text)
+
     async def test_blacklisted_group_message_is_deleted_silently(self):
         message = SimpleNamespace(
             from_user=SimpleNamespace(is_bot=False),
