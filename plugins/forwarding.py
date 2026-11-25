@@ -748,7 +748,24 @@ async def restart_forwards(client):
     logger.info("Pending forwarding tasks restored")
 
 
-async def update_forward(user_id, chat_id, start_time, toid, last_id, limit, forward_id, msg_id, fetched, total, duplicate, deleted, skip, filterd):
+async def update_forward(
+    user_id,
+    chat_id,
+    start_time,
+    toid,
+    last_id,
+    limit,
+    forward_id,
+    msg_id,
+    fetched,
+    total,
+    duplicate,
+    deleted,
+    skip,
+    filterd,
+    videos=0,
+    photos=0,
+):
     details = {
         'chat_id': chat_id,
         'toid': toid,
@@ -761,6 +778,8 @@ async def update_forward(user_id, chat_id, start_time, toid, last_id, limit, for
         'offset': fetched,
         'deleted': deleted,
         'total': total,
+        'videos': videos,
+        'photos': photos,
         'duplicate': duplicate,
         'skip': skip,
         'filtered':filterd
