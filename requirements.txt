@@ -1,10 +1,9 @@
 # Kurigram (maintained Pyrogram-compatible Telegram client) with accelerated crypto
 kurigram[fast]==2.2.27
 
-# Python 3.11-compatible async MongoDB driver and supported PyMongo range
+# Python 3.11-compatible async MongoDB driver; pulls compatible PyMongo and DNS support
+# (including mongodb+srv:// URIs) as dependencies.
 motor>=3.7.1,<4.0
-pymongo>=4.9,<5.0
-dnspython
 
 # Runtime and health endpoint
 Flask>=3.0,<4.0
