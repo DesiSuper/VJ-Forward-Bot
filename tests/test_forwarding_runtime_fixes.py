@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from pyrogram.errors import ChatWriteForbidden
+from pyrogram.errors import ChatWriteForbidden, InternalServerError, MessageEmpty, MessageIdInvalid
 
 from config import temp
 from plugins.db import MongoDB
@@ -10,7 +10,9 @@ from plugins.forwarding import (
     DestinationPermissionError,
     copy,
     custom_caption,
+    forward,
     forward_source_messages,
+    msg_edit,
     store_vars,
     stop,
 )
@@ -118,6 +120,131 @@ class ForwardingRuntimeFixTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(task.get("deleted"), 0)
 
+    async def test_filtered_messages_checkpoint_in_batches_and_at_end(self):
+        async def source_iter(*args, **kwargs):
+            for _ in range(45):
+                yield "FILTERED"
+
+        checkpoint = AsyncMock()
+        with (
+            patch("plugins.forwarding.iter_messages", source_iter),
+            patch("plugins.forwarding.is_cancelled", new=AsyncMock(return_value=False)),
+            patch("plugins.forwarding.edit", new=AsyncMock()),
+            patch("plugins.forwarding.persist_task_checkpoint", new=checkpoint),
+        ):
+            result = await forward_source_messages(
+                9,
+                object(),
+                SimpleNamespace(id=1),
+                FakeTask(total=100),
+                0,
+                {
+                    "filters": [],
+                    "max_size": 0,
+                    "min_size": 0,
+                    "extensions": (),
+                    "keywords": (),
+                    "skip_duplicate": False,
+                },
+                None,
+                False,
+                False,
+                None,
+                None,
+                set(),
+                (0, 0),
+                0,
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(checkpoint.await_count, 3)
+
+    async def test_non_permission_telegram_copy_errors_skip_message_not_entire_task(self):
+        client = SimpleNamespace(copy_message=AsyncMock(side_effect=MessageEmpty()))
+        task = FakeTask()
+
+        result = await copy(9, client, {"msg_id": 7}, SimpleNamespace(id=2), task)
+
+        self.assertFalse(result)
+        self.assertEqual(task.get("deleted"), 1)
+
+    async def test_transient_delivery_failure_retries_three_times_then_skips_only_message(self):
+        client = SimpleNamespace(copy_message=AsyncMock(side_effect=InternalServerError()))
+        task = FakeTask()
+
+        with patch("plugins.forwarding.asyncio.sleep", new=AsyncMock()):
+            result = await copy(9, client, {"msg_id": 7}, SimpleNamespace(id=2), task)
+
+        self.assertFalse(result)
+        self.assertEqual(client.copy_message.await_count, 3)
+        self.assertEqual(task.get("deleted"), 1)
+
+    async def test_forward_tag_falls_back_to_individual_messages_after_batch_error(self):
+        messages = [
+            SimpleNamespace(id=index, empty=False, service=False, document=None, media=None)
+            for index in (1, 2)
+        ]
+
+        async def source_iter(*args, **kwargs):
+            for item in messages:
+                yield item
+
+        async def send_batch(*, message_ids, **kwargs):
+            if len(message_ids) > 1 or message_ids == [2]:
+                raise MessageEmpty()
+
+        client = SimpleNamespace(forward_messages=AsyncMock(side_effect=send_batch))
+        task = FakeTask(total=2)
+        with (
+            patch("plugins.forwarding.iter_messages", source_iter),
+            patch("plugins.forwarding.is_cancelled", new=AsyncMock(return_value=False)),
+            patch("plugins.forwarding.edit", new=AsyncMock()),
+            patch("plugins.forwarding.persist_task_checkpoint", new=AsyncMock()),
+            patch("plugins.forwarding.pause_between_messages", new=AsyncMock()),
+        ):
+            result = await forward_source_messages(
+                9,
+                client,
+                SimpleNamespace(id=1),
+                task,
+                0,
+                {
+                    "filters": [],
+                    "max_size": 0,
+                    "min_size": 0,
+                    "extensions": (),
+                    "keywords": (),
+                    "skip_duplicate": False,
+                },
+                None,
+                True,
+                False,
+                None,
+                None,
+                set(),
+                (0, 0),
+                0,
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(task.get("total_files"), 1)
+        self.assertEqual(task.get("deleted"), 1)
+        self.assertEqual(client.forward_messages.await_count, 3)
+
+    async def test_non_permission_telegram_forward_errors_are_skipped(self):
+        client = SimpleNamespace(forward_messages=AsyncMock(side_effect=MessageEmpty()))
+
+        result = await forward(
+            9,
+            client,
+            [7],
+            SimpleNamespace(id=2),
+            FakeTask(),
+            False,
+        )
+
+        self.assertFalse(result)
+
     async def test_non_tag_copy_checkpoints_each_processed_message(self):
         messages = [
             SimpleNamespace(id=index, empty=False, service=False, document=None, media=None)
@@ -177,6 +304,13 @@ class ForwardingRuntimeFixTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(custom_caption(message, "{filename}"), "&lt;b&gt;spoof&lt;/b&gt;.pdf")
         self.assertEqual(custom_caption(message, "{caption}"), "")
 
+    async def test_deleted_progress_message_does_not_crash_status_update(self):
+        message = SimpleNamespace(id=17, edit=AsyncMock(side_effect=MessageIdInvalid()))
+
+        result = await msg_edit(message, "still forwarding")
+
+        self.assertIsNone(result)
+
     async def test_stop_releases_counter_lock_and_progress_edit_cache(self):
         from plugins.forwarding import _LAST_PROGRESS_EDIT
 
@@ -196,6 +330,17 @@ class ForwardingRuntimeFixTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(user_id, temp.CANCEL)
         self.assertNotIn(destination, temp.IS_FRWD_CHAT)
         self.assertNotIn((user_id, 123), _LAST_PROGRESS_EDIT)
+
+    async def test_stop_can_release_runtime_state_without_deleting_resume_record(self):
+        temp.forwardings = 1
+        client = SimpleNamespace(stop=AsyncMock())
+        remove_record = AsyncMock()
+
+        with patch("plugins.forwarding.db.rmve_frwd", new=remove_record):
+            await stop(client, 718, remove_record=False)
+
+        remove_record.assert_not_awaited()
+        self.assertEqual(temp.forwardings, 0)
 
     async def test_resume_task_store_uses_supported_task_id_argument(self):
         STATUS.clear()

@@ -11,8 +11,12 @@ from pyrogram.errors import (
     ChatWriteForbidden,
     FloodWait,
     Forbidden,
+    InternalServerError,
     MessageIdInvalid,
     MessageNotModified,
+    RPCError,
+    Timeout,
+    Timeout503,
     UserBannedInChannel,
 )
 from pyrogram.types import InlineKeyboardMarkup
@@ -35,6 +39,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 TEXT = Script.TEXT
 _PROGRESS_EDIT_INTERVAL = 5.0
+_CHECKPOINT_MESSAGE_INTERVAL = 20
+_CHECKPOINT_TIME_INTERVAL = 5.0
 _LAST_PROGRESS_EDIT: dict[tuple[int, int], float] = {}
 _BACKGROUND_FORWARD_TASKS: set[asyncio.Task] = set()
 
@@ -50,6 +56,32 @@ _DESTINATION_PERMISSION_ERRORS = (
     Forbidden,
     UserBannedInChannel,
 )
+_TRANSIENT_DELIVERY_ERRORS = (
+    InternalServerError,
+    Timeout,
+    Timeout503,
+    asyncio.TimeoutError,
+    OSError,
+)
+
+
+async def _request_with_retry(request, *, user_id, operation):
+    """Retry transient delivery failures without advancing the saved checkpoint."""
+    for attempt in range(3):
+        try:
+            return await request()
+        except _TRANSIENT_DELIVERY_ERRORS:
+            if attempt == 2:
+                raise
+            delay = 2 ** attempt
+            logger.warning(
+                "%s temporarily failed for user %s; retrying in %ss (attempt %s/3)",
+                operation,
+                user_id,
+                delay,
+                attempt + 1,
+            )
+            await asyncio.sleep(delay)
 
 
 async def pause_between_messages(gap, default_delay):
@@ -130,13 +162,55 @@ async def forward_source_messages(
     pending_file_ids = []
     pending_media_counts = []
     scanned_since_update = 0
+    messages_since_checkpoint = 0
+    last_checkpoint_at = time.monotonic()
     batch_size = 1 if random_gap[1] > 0 else 100
     keywords = options.get("keywords") or ()
     extensions = options.get("extensions") or ()
 
-    async def checkpoint_when_safe():
-        if not pending_message_ids:
-            await persist_task_checkpoint(user_id, progress_message, task)
+    async def checkpoint_when_safe(*, force=False):
+        nonlocal messages_since_checkpoint, last_checkpoint_at
+        if pending_message_ids:
+            return
+        due_by_count = messages_since_checkpoint >= _CHECKPOINT_MESSAGE_INTERVAL
+        due_by_time = time.monotonic() - last_checkpoint_at >= _CHECKPOINT_TIME_INTERVAL
+        if not force and not due_by_count and not due_by_time:
+            return
+        await persist_task_checkpoint(user_id, progress_message, task)
+        messages_since_checkpoint = 0
+        last_checkpoint_at = time.monotonic()
+
+    async def record_forward_result(forwarded, message_ids, media_counts, file_ids):
+        successful_ids = (
+            set(message_ids) if forwarded is True else set(forwarded or ())
+        )
+        task.add("total_files", len(successful_ids))
+        task.add("deleted", len(message_ids) - len(successful_ids))
+        for message_id, media_type in zip(message_ids, media_counts):
+            if message_id in successful_ids and media_type:
+                task.add(media_type)
+        if user_db:
+            for message_id, file_unique_id in file_ids:
+                if message_id in successful_ids:
+                    try:
+                        await user_db.add_file(file_unique_id)
+                    except Exception:
+                        logger.warning(
+                            "Could not persist optional duplicate record for user %s",
+                            user_id,
+                            exc_info=True,
+                        )
+        failed_unique_ids = {
+            ("unique", file_unique_id)
+            for message_id, file_unique_id in file_ids
+            if message_id not in successful_ids
+        }
+        if isinstance(known_duplicates, set):
+            known_duplicates.difference_update(failed_unique_ids)
+        elif failed_unique_ids:
+            known_duplicates[:] = [
+                key for key in known_duplicates if key not in failed_unique_ids
+            ]
 
     async for source_message in iter_messages(
         client,
@@ -152,6 +226,7 @@ async def forward_source_messages(
             await edit(user_id, progress_message, "Working", 5, task, persist=False)
         scanned_since_update += 1
         task.add("fetched")
+        messages_since_checkpoint += 1
 
         if source_message == "FILTERED":
             task.add("filtered")
@@ -205,36 +280,25 @@ async def forward_source_messages(
             pending_message_ids.append(source_message.id)
             pending_media_counts.append(media_kind)
             if document and options["skip_duplicate"] and document.file_unique_id:
-                pending_file_ids.append(document.file_unique_id)
+                pending_file_ids.append((source_message.id, document.file_unique_id))
             remaining = task.get("total") - task.get("fetched")
             if len(pending_message_ids) >= batch_size or remaining <= 0:
-                batch_count = len(pending_message_ids)
                 forwarded = await forward(
                     user_id, client, pending_message_ids, progress_message, task, protect
                 )
-                if forwarded:
-                    task.add("total_files", batch_count)
-                    for media_type in pending_media_counts:
-                        if media_type:
-                            task.add(media_type)
-                    if user_db:
-                        for file_unique_id in pending_file_ids:
-                            await user_db.add_file(file_unique_id)
-                    await pause_between_messages(random_gap, default_delay)
-                else:
-                    task.add("deleted", batch_count)
-                    if isinstance(known_duplicates, set):
-                        known_duplicates.difference_update(("unique", file_id) for file_id in pending_file_ids)
-                    else:
-                        pending_keys = {("unique", file_id) for file_id in pending_file_ids}
-                        known_duplicates[:] = [
-                            file_id for file_id in known_duplicates
-                            if file_id not in pending_keys
-                        ]
+                sent_any = bool(forwarded)
+                await record_forward_result(
+                    forwarded,
+                    pending_message_ids,
+                    pending_media_counts,
+                    pending_file_ids,
+                )
                 pending_message_ids.clear()
                 pending_file_ids.clear()
                 pending_media_counts.clear()
-                await checkpoint_when_safe()
+                await checkpoint_when_safe(force=True)
+                if sent_any:
+                    await pause_between_messages(random_gap, default_delay)
             continue
 
         details = {
@@ -250,45 +314,45 @@ async def forward_source_messages(
             if media_kind:
                 task.add(media_kind)
             if document and options["skip_duplicate"] and user_db and document.file_unique_id:
-                await user_db.add_file(document.file_unique_id)
-            await pause_between_messages(random_gap, default_delay)
+                try:
+                    await user_db.add_file(document.file_unique_id)
+                except Exception:
+                    logger.warning(
+                        "Could not persist optional duplicate record for user %s",
+                        user_id,
+                        exc_info=True,
+                    )
         elif document and options["skip_duplicate"] and document.file_unique_id:
             if isinstance(known_duplicates, set):
                 known_duplicates.discard(unique_key)
             elif unique_key in known_duplicates:
                 known_duplicates.remove(unique_key)
-        await checkpoint_when_safe()
+        await checkpoint_when_safe(force=True)
+        if copied:
+            await pause_between_messages(random_gap, default_delay)
 
     # Flush a final partial forward-tag batch even if the source yielded fewer
     # messages than the saved task limit predicted.
     if pending_message_ids:
-        batch_count = len(pending_message_ids)
         forwarded = await forward(
             user_id, client, pending_message_ids, progress_message, task, protect
         )
-        if forwarded:
-            task.add("total_files", batch_count)
-            for media_type in pending_media_counts:
-                if media_type:
-                    task.add(media_type)
-            if user_db:
-                for file_unique_id in pending_file_ids:
-                    await user_db.add_file(file_unique_id)
-            await pause_between_messages(random_gap, default_delay)
-        else:
-            task.add("deleted", batch_count)
-            if isinstance(known_duplicates, set):
-                known_duplicates.difference_update(("unique", file_id) for file_id in pending_file_ids)
-            else:
-                pending_keys = {("unique", file_id) for file_id in pending_file_ids}
-                known_duplicates[:] = [
-                    file_id for file_id in known_duplicates
-                    if file_id not in pending_keys
-                ]
+        sent_any = bool(forwarded)
+        await record_forward_result(
+            forwarded,
+            pending_message_ids,
+            pending_media_counts,
+            pending_file_ids,
+        )
         pending_message_ids.clear()
         pending_file_ids.clear()
         pending_media_counts.clear()
-        await checkpoint_when_safe()
+        await checkpoint_when_safe(force=True)
+        if sent_any:
+            await pause_between_messages(random_gap, default_delay)
+
+    elif messages_since_checkpoint:
+        await checkpoint_when_safe(force=True)
 
     return True
 
@@ -481,8 +545,12 @@ async def pub_(bot, message):
         STATUS.pop(sts.id, None)
         if user_have_db:
             await close_optional_db(user_db)
-        await stop(client, user, destination=sts.TO)
-        return await msg_edit(m, f"<b>Forwarding failed:</b>\n<code>{escape(str(error))}</code>", wait=True)
+        await stop(client, user, destination=sts.TO, remove_record=False)
+        return await msg_edit(
+            m,
+            f"<b>Forwarding paused; progress is saved for resume.</b>\n<code>{escape(str(error))}</code>",
+            wait=True,
+        )
 
     await send(client, user, "<b>✓ Forwarding complete.</b>")
     try:
@@ -499,63 +567,101 @@ async def pub_(bot, message):
 
 
 async def copy(user, bot, msg, m, sts):
+   async def deliver():
+      if msg.get("media") and msg.get("caption"):
+         return await bot.send_cached_media(
+             chat_id=sts.get('TO'),
+             file_id=msg.get("media"),
+             caption=msg.get("caption"),
+             reply_markup=msg.get('button'),
+             protect_content=msg.get("protect"),
+         )
+      return await bot.copy_message(
+          chat_id=sts.get('TO'),
+          from_chat_id=sts.get('FROM'),
+          caption=msg.get("caption"),
+          message_id=msg.get("msg_id"),
+          reply_markup=msg.get('button'),
+          protect_content=msg.get("protect"),
+      )
+
    try:
-     if msg.get("media") and msg.get("caption"):
-        await bot.send_cached_media(
-              chat_id=sts.get('TO'),
-              file_id=msg.get("media"),
-              caption=msg.get("caption"),
-              reply_markup=msg.get('button'),
-              protect_content=msg.get("protect"))
-     else:
-        await bot.copy_message(
-              chat_id=sts.get('TO'),
-              from_chat_id=sts.get('FROM'),
-              caption=msg.get("caption"),
-              message_id=msg.get("msg_id"),
-              reply_markup=msg.get('button'),
-              protect_content=msg.get("protect"))
-   except FloodWait as e:
-     await edit(user, m, 'Working', e.value, sts, persist=False)
-     await asyncio.sleep(e.value)
-     await edit(user, m, 'Working', 5, sts, persist=False)
-     return await copy(user, bot, msg, m, sts)
+      await _request_with_retry(deliver, user_id=user, operation="Copy")
+   except FloodWait as error:
+      await asyncio.sleep(error.value)
+      return await copy(user, bot, msg, m, sts)
    except _DESTINATION_PERMISSION_ERRORS as error:
-     raise DestinationPermissionError(
-         "The connected account cannot post to the destination. Check its write permissions."
-     ) from error
+      raise DestinationPermissionError(
+          "The connected account cannot post to the destination. Check its write permissions."
+      ) from error
    except MessageIdInvalid:
-     logger.info("Source message %s is no longer available", msg.get("msg_id"))
-     sts.add('deleted')
-     return False
+      logger.info("Source message %s is no longer available", msg.get("msg_id"))
+      sts.add('deleted')
+      return False
+   except RPCError:
+      logger.warning("Skipping source message %s after Telegram rejected the copy", msg.get("msg_id"), exc_info=True)
+      sts.add('deleted')
+      return False
    except Exception:
-     logger.exception("Could not copy a source message for user %s", user)
-     raise
+      logger.exception("Could not copy a source message for user %s", user)
+      raise
    return True
 
 
 async def forward(user, bot, msg, m, sts, protect):
+   async def deliver(message_ids):
+      return await bot.forward_messages(
+          chat_id=sts.get('TO'),
+          from_chat_id=sts.get('FROM'),
+          protect_content=protect,
+          message_ids=message_ids,
+      )
+
    try:
-     await bot.forward_messages(
-           chat_id=sts.get('TO'),
-           from_chat_id=sts.get('FROM'),
-           protect_content=protect,
-           message_ids=msg)
-   except FloodWait as e:
-     await edit(user, m, 'Working', e.value, sts, persist=False)
-     await asyncio.sleep(e.value)
-     await edit(user, m, 'Working', 5, sts, persist=False)
-     return await forward(user, bot, msg, m, sts, protect)
+      await _request_with_retry(
+          lambda: deliver(msg), user_id=user, operation="Forward"
+      )
+   except FloodWait as error:
+      await asyncio.sleep(error.value)
+      return await forward(user, bot, msg, m, sts, protect)
    except _DESTINATION_PERMISSION_ERRORS as error:
-     raise DestinationPermissionError(
-         "The connected account cannot post to the destination. Check its write permissions."
-     ) from error
-   except MessageIdInvalid:
-     logger.info("Source message batch contains an unavailable message for user %s", user)
-     return False
+      raise DestinationPermissionError(
+          "The connected account cannot post to the destination. Check its write permissions."
+      ) from error
+   except RPCError:
+      logger.warning(
+          "Telegram rejected a forwarding batch for user %s; retrying its messages individually",
+          user,
+          exc_info=True,
+      )
+      sent_ids = []
+      for message_id in msg:
+          while True:
+              try:
+                  await _request_with_retry(
+                      lambda current_id=message_id: deliver([current_id]),
+                      user_id=user,
+                      operation="Forward single message",
+                  )
+                  sent_ids.append(message_id)
+                  break
+              except FloodWait as error:
+                  await asyncio.sleep(error.value)
+              except _DESTINATION_PERMISSION_ERRORS as error:
+                  raise DestinationPermissionError(
+                      "The connected account cannot post to the destination. Check its write permissions."
+                  ) from error
+              except RPCError:
+                  logger.warning(
+                      "Skipping source message %s after Telegram rejected forwarding",
+                      message_id,
+                      exc_info=True,
+                  )
+                  break
+      return sent_ids
    except Exception:
-     logger.exception("Could not forward a batch of source messages for user %s", user)
-     raise
+      logger.exception("Could not forward a batch of source messages for user %s", user)
+      raise
    return True
 
 
@@ -564,6 +670,9 @@ async def msg_edit(msg, text, button=None, wait=None):
         return await msg.edit(text, reply_markup=button)
     except MessageNotModified:
         pass
+    except MessageIdInvalid:
+        logger.info("Progress message %s was deleted; continuing without UI updates", getattr(msg, "id", None))
+        return None
     except FloodWait as e:
         if wait:
            await asyncio.sleep(e.value)
@@ -649,13 +758,15 @@ async def is_cancelled(client, user, msg, sts):
    return False
 
 
-async def stop(client, user, counted=True, destination=None):
+async def stop(client, user, counted=True, destination=None, *, remove_record=True):
    try:
-     await client.stop()
+     if client is not None:
+         await client.stop()
    except Exception:
      logger.debug("Forwarding client cleanup failed for user %s", user, exc_info=True)
    try:
-       await db.rmve_frwd(user)
+       if remove_record:
+           await db.rmve_frwd(user)
    except Exception:
        logger.exception("Could not remove forwarding state for user %s", user)
    finally:
@@ -824,7 +935,7 @@ async def restart_pending_forwads(bot, user):
            STATUS.pop(forward_id, None)
        if m is not None:
            _LAST_PROGRESS_EDIT.pop((user, m.id), None)
-       await stop(client, user, counted=counted)
+       await stop(client, user, counted=counted, remove_record=False)
        raise
     except Exception as error:
        logger.exception("Could not restore pending forwarding task for user %s", user)
@@ -837,7 +948,7 @@ async def restart_pending_forwads(bot, user):
            try:
                await msg_edit(
                    m,
-                   f"<b>Could not resume forwarding:</b>\\n<code>{escape(str(error))}</code>",
+                   f"<b>Could not resume forwarding:</b>\n<code>{escape(str(error))}</code>",
                    wait=True,
                )
            except Exception:
@@ -863,7 +974,7 @@ async def restart_pending_forwads(bot, user):
             await close_optional_db(user_db)
         STATUS.pop(sts.id, None)
         _LAST_PROGRESS_EDIT.pop((user, m.id), None)
-        await stop(client, user, destination=i.TO)
+        await stop(client, user, destination=i.TO, remove_record=False)
         raise
     except Exception as error:
         logger.exception("Could not prepare resumed forwarding task for user %s", user)
@@ -875,7 +986,7 @@ async def restart_pending_forwads(bot, user):
         try:
             await msg_edit(
                 m,
-                f"<b>Could not resume forwarding:</b>\\n<code>{escape(str(error))}</code>",
+                f"<b>Could not resume forwarding:</b>\n<code>{escape(str(error))}</code>",
                 wait=True,
             )
         except Exception:
@@ -931,8 +1042,12 @@ async def restart_pending_forwads(bot, user):
         STATUS.pop(sts.id, None)
         if user_have_db:
             await close_optional_db(user_db)
-        await stop(client, user, destination=sts.TO)
-        return await msg_edit(m, f"<b>Forwarding failed:</b>\n<code>{escape(str(error))}</code>", wait=True)
+        await stop(client, user, destination=sts.TO, remove_record=False)
+        return await msg_edit(
+            m,
+            f"<b>Forwarding paused; progress is saved for resume.</b>\n<code>{escape(str(error))}</code>",
+            wait=True,
+        )
 
     await send(client, user, "<b>✓ Forwarding complete.</b>")
     try:

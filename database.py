@@ -151,20 +151,6 @@ class Db:
         self._require_database()
         return await self.col.count_documents({})
 
-    async def remove_ban(self, id: int) -> None:
-        self._require_database()
-        await self.col.update_one(
-            {"id": int(id)},
-            {"$set": {"ban_status": {"is_banned": False, "ban_reason": ""}}},
-        )
-
-    async def ban_user(self, user_id: int, ban_reason: str = "No Reason") -> None:
-        self._require_database()
-        await self.col.update_one(
-            {"id": int(user_id)},
-            {"$set": {"ban_status": {"is_banned": True, "ban_reason": ban_reason}}},
-        )
-
     async def get_ban_status(self, id: int) -> dict[str, Any]:
         self._require_database()
         user = await self.col.find_one({"id": int(id)}, {"ban_status": 1})
@@ -177,11 +163,6 @@ class Db:
     async def delete_user(self, user_id: int) -> None:
         self._require_database()
         await self.col.delete_many({"id": int(user_id)})
-
-    async def get_banned(self) -> list[int]:
-        self._require_database()
-        cursor = self.col.find({"ban_status.is_banned": True}, {"id": 1})
-        return [user["id"] async for user in cursor]
 
     async def update_configs(self, id: int, configs: dict[str, Any]) -> None:
         self._require_database()
