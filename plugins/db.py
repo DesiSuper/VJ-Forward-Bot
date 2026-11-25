@@ -1,13 +1,6 @@
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
-import asyncio
 import motor.motor_asyncio
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
 class MongoDB:
     def __init__(self, uri, db_name, collection):
@@ -19,31 +12,35 @@ class MongoDB:
         self.files = None
 
     async def connect(self):
-        self.client = motor.motor_asyncio.AsyncIOMotorClient(self.uri)
+        self.client = motor.motor_asyncio.AsyncIOMotorClient(
+            self.uri,
+            serverSelectionTimeoutMS=5_000,
+            connectTimeoutMS=5_000,
+        )
         self.db = self.client[self.db_name]
         self.files = self.db[self.collection]
+        await self.client.admin.command("ping")
+        await self.files.create_index("file_unique_id", unique=True, sparse=True)
 
     async def close(self):
         if self.client:
             self.client.close()
 
-    async def add_file(self, file_id):
-        file = {"file_id": file_id}
-        return await self.files.insert_one(file)
-        
-    async def is_file_exit(self, file_id):
-        f = await self.files.find_one({"file_id": file_id})
-        return bool(f)
-        
+    async def add_file(self, file_unique_id):
+        return await self.files.update_one(
+            {"file_unique_id": file_unique_id},
+            {"$setOnInsert": {"file_unique_id": file_unique_id}},
+            upsert=True,
+        )
+
+    async def is_file_exit(self, file_unique_id):
+        existing = await self.files.find_one({"file_unique_id": file_unique_id}, {"_id": 1})
+        return existing is not None
+
     async def get_all_files(self):
+        """Return Motor's async cursor, including legacy file_id-only entries."""
         return self.files.find({})
         
-    async def drop_all(self):
-        return await self.files.drop()
-        
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
 async def connect_user_db(user_id, uri, chat):
     chat = f"{user_id}{chat}"
@@ -51,11 +48,7 @@ async def connect_user_db(user_id, uri, chat):
     db = MongoDB(uri, dbname, chat)
     try:
         await db.connect()
-    except Exception as e:
-        print(e)
+    except Exception:
+        await db.close()
         return False, db
     return True, db
-    
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01

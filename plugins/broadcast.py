@@ -1,51 +1,47 @@
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
-from pyrogram.errors import InputUserDeactivated, UserNotParticipant, FloodWait, UserIsBlocked, PeerIdInvalid
-from database import db
-from pyrogram import Client, filters
-from config import Config
 import asyncio
 import datetime
-import time
 import logging
+import time
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+from pyrogram import Client, filters
+from pyrogram.errors import (
+    FloodWait,
+    InputUserDeactivated,
+    PeerIdInvalid,
+    UserIsBlocked,
+)
+
+from config import Config
+from database import db
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
 async def broadcast_messages(user_id, message):
-    try:
-        await message.copy(chat_id=user_id)
-        return True, "Success"
-    except FloodWait as e:
-        await asyncio.sleep(e.value)
-        return await broadcast_messages(user_id, message)
-    except InputUserDeactivated:
-        await db.delete_user(int(user_id))
-        logging.info(f"{user_id}-Removed from Database, since deleted account.")
-        return False, "Deleted"
-    except UserIsBlocked:
-        logging.info(f"{user_id} -Blocked the bot.")
-        return False, "Blocked"
-    except PeerIdInvalid:
-        await db.delete_user(int(user_id))
-        logging.info(f"{user_id} - PeerIdInvalid")
-        return False, "Error"
-    except Exception as e:
-        return False, "Error"
+    while True:
+        try:
+            await message.copy(chat_id=user_id)
+            return True, "Success"
+        except FloodWait as error:
+            await asyncio.sleep(error.value)
+        except InputUserDeactivated:
+            await db.delete_user(int(user_id))
+            logger.info("Removed %s from the database because the account is inactive", user_id)
+            return False, "Deleted"
+        except UserIsBlocked:
+            logger.info("User %s has blocked the bot", user_id)
+            return False, "Blocked"
+        except PeerIdInvalid:
+            # Invalid peer resolution can be transient or caused by stale
+            # access hashes; it does not prove that the user account is gone.
+            logger.info("Broadcast peer resolution failed for %s", user_id)
+            return False, "Error"
+        except Exception:
+            logger.exception("Broadcast delivery failed for %s", user_id)
+            return False, "Error"
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
 
 @Client.on_message(filters.command("broadcast") & filters.user(Config.BOT_OWNER) & filters.reply)
@@ -53,7 +49,7 @@ async def verupikkals(bot, message):
     users = await db.get_all_users()
     b_msg = message.reply_to_message
     sts = await message.reply_text(
-        text='Broadcasting your messages...'
+        text='<b>Broadcast started…</b>'
     )
     start_time = time.time()
     total_users = await db.total_users_count()
@@ -62,9 +58,6 @@ async def verupikkals(bot, message):
     deleted = 0
     failed =0
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
     success = 0
     async for user in users:
@@ -81,21 +74,16 @@ async def verupikkals(bot, message):
                     failed += 1
             done += 1
             if not done % 20:
-                await sts.edit(f"Broadcast in progress:\n\nTotal Users {total_users}\nCompleted: {done} / {total_users}\nSuccess: {success}\nBlocked: {blocked}\nDeleted: {deleted}")    
+                await sts.edit(f"<b>Broadcast in progress</b>\n\nCompleted: <code>{done}/{total_users}</code>\nDelivered: <code>{success}</code>\nBlocked: <code>{blocked}</code>\nInactive: <code>{deleted}</code>\nFailed: <code>{failed}</code>")
         else:
             # Handle the case where 'id' key is missing in the user dictionary
             done += 1
             failed += 1
             if not done % 20:
                 try:
-                    await sts.edit(f"Broadcast in progress:\n\nTotal Users {total_users}\nCompleted: {done} / {total_users}\nSuccess: {success}\nBlocked: {blocked}\nDeleted: {deleted}") 
-                except:
-                    pass
-    
+                    await sts.edit(f"<b>Broadcast in progress</b>\n\nCompleted: <code>{done}/{total_users}</code>\nDelivered: <code>{success}</code>\nBlocked: <code>{blocked}</code>\nInactive: <code>{deleted}</code>\nFailed: <code>{failed}</code>")
+                except Exception:
+                    logger.debug("Could not update broadcast progress for owner", exc_info=True)
+
     time_taken = datetime.timedelta(seconds=int(time.time()-start_time))
-    await sts.edit(f"Broadcast Completed:\nCompleted in {time_taken} seconds.\n\nTotal Users {total_users}\nCompleted: {done} / {total_users}\nSuccess: {success}\nBlocked: {blocked}\nDeleted: {deleted}")
-
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
-
+    await sts.edit(f"<b>Broadcast complete</b>\n\nDuration: <code>{time_taken}</code>\nCompleted: <code>{done}/{total_users}</code>\nDelivered: <code>{success}</code>\nBlocked: <code>{blocked}</code>\nInactive: <code>{deleted}</code>\nFailed: <code>{failed}</code>")

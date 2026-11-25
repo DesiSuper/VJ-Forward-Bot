@@ -1,195 +1,204 @@
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+"""Telegram entry points and navigation for the user-facing bot UI."""
 
-import os
-import sys
-import asyncio 
-from database import Db, db
-from config import Config, temp
-from script import Script
+from __future__ import annotations
+
+from functools import partial
+from html import escape
+from types import SimpleNamespace
+
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaDocument
-import psutil
-import time as time
-from os import environ, execle, system
+from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
 
-START_TIME = time.time()
+from .ui import InlineKeyboardButton
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+from config import Config
+from database import db
+from messages import Script
 
-main_buttons = [[
-    InlineKeyboardButton('❣️ ᴅᴇᴠᴇʟᴏᴘᴇʀ ❣️', url='https://t.me/kingvj01')
-],[
-    InlineKeyboardButton('🔍 sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ', url='https://t.me/vj_bot_disscussion'),
-    InlineKeyboardButton('🤖 ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ', url='https://t.me/vj_botz')
-],[
-    InlineKeyboardButton('💝 sᴜʙsᴄʀɪʙᴇ ᴍʏ ʏᴏᴜᴛᴜʙᴇ ᴄʜᴀɴɴᴇʟ', url='https://youtube.com/@Tech_VJ')
-],[
-    InlineKeyboardButton('👨‍💻 ʜᴇʟᴘ', callback_data='help'),
-    InlineKeyboardButton('💁 ᴀʙᴏᴜᴛ', callback_data='about')
-],[
-    InlineKeyboardButton('⚙ sᴇᴛᴛɪɴɢs', callback_data='settings#main')
-]]
+def home_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🚀  Start forwarding", callback_data="quick_forward"),
+                InlineKeyboardButton("📊  My dashboard", callback_data="dashboard"),
+            ],
+            [
+                InlineKeyboardButton("⚙️  Settings", callback_data="settings#main"),
+                InlineKeyboardButton("📖  Help", callback_data="help"),
+            ],
+        ]
+    )
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
-@Client.on_message(filters.private & filters.command(['start']))
+def home_text(name: str) -> str:
+    return Script.START_TXT.format(escape(name or "there"))
+
+
+async def dashboard_text(user_id: int) -> str:
+    """Return a compact, per-user view of setup readiness and task progress."""
+    account = await db.get_bot(user_id)
+    account_kind = "Bot"
+    if not account:
+        account = await db.get_userbot(user_id)
+        account_kind = "User account"
+
+    channels = await db.get_user_channels(user_id)
+    sources = (await db.get_configs(user_id)).get("sources") or []
+    active = await db.is_forwad_exit(user_id)
+    details = await db.get_forward_details(user_id) if active else {}
+
+    account_line = "Not connected"
+    if account:
+        username = account.get("username")
+        account_line = f"{account_kind}: {escape(str(account.get('name') or 'Connected'))}"
+        if username:
+            account_line += f" (@{escape(str(username))})"
+        if account.get("id") is not None:
+            account_line += f" · ID <code>{escape(str(account['id']))}</code>"
+
+    if active:
+        fetched = int(details.get("fetched") or 0)
+        limit = int(details.get("limit") or 0)
+        task_line = f"Running · {fetched:,} of {limit:,} messages scanned"
+    else:
+        task_line = "No active forwarding task"
+
+    if account and channels:
+        readiness = "Ready to forward"
+    elif not account and not channels:
+        readiness = "Connect an account and add a destination to get started"
+    elif not account:
+        readiness = "Connect a bot or user account to continue"
+    else:
+        readiness = "Add a destination channel to continue"
+
+    destinations = "\n".join(
+        f"• {escape(str(channel.get('title') or 'Untitled chat'))} "
+        f"<code>{escape(str(channel.get('chat_id') or ''))}</code>"
+        for channel in channels[:4]
+    ) or "• No destinations added"
+    if len(channels) > 4:
+        destinations += f"\n• and {len(channels) - 4} more"
+
+    source_list = "\n".join(
+        f"• {escape(str(source.get('title') or 'Untitled chat'))} "
+        f"<code>{escape(str(source.get('chat_id') or ''))}</code>"
+        for source in sources[:4]
+    ) or "• No sources saved"
+    if len(sources) > 4:
+        source_list += f"\n• and {len(sources) - 4} more"
+
+    return (
+        "<b>📊 Your dashboard</b>\n\n"
+        f"<b>Setup:</b> {escape(readiness)}\n"
+        f"<b>Connected account:</b> {account_line}\n\n"
+        f"<b>Destinations ({len(channels)}):</b>\n{destinations}\n\n"
+        f"<b>Saved sources ({len(sources)}):</b>\n{source_list}\n\n"
+        f"<b>Forwarding:</b> {escape(task_line)}"
+    )
+
+
+@Client.on_message(filters.private & filters.command(["start"]))
 async def start(client, message):
     user = message.from_user
     if not await db.is_user_exist(user.id):
         await db.add_user(user.id, user.first_name)
-    reply_markup = InlineKeyboardMarkup(main_buttons)
     await client.send_message(
         chat_id=message.chat.id,
-        reply_markup=reply_markup,
-        text=Script.START_TXT.format(message.from_user.first_name))
+        text=home_text(user.first_name),
+        reply_markup=home_keyboard(),
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
-@Client.on_message(filters.private & filters.command(['restart']) & filters.user(Config.BOT_OWNER))
+@Client.on_message(filters.private & filters.command(["status"]))
+async def user_status(client, message):
+    await message.reply_text(
+        await dashboard_text(message.from_user.id),
+        reply_markup=home_keyboard(),
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
+
+
+@Client.on_message(filters.private & filters.command(["restart"]) & filters.user(Config.BOT_OWNER))
 async def restart(client, message):
-    msg = await message.reply_text(text="<i>Trying to restarting.....</i>")
-    await asyncio.sleep(5)
-    await msg.edit("<i>Server restarted successfully ✅</i>")
-    system("git pull -f && pip3 install --no-cache-dir -r requirements.txt")
-    execle(sys.executable, sys.executable, "main.py", environ)
-
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
-
-@Client.on_callback_query(filters.regex(r'^help'))
-async def helpcb(bot, query):
-    buttons = [[
-        InlineKeyboardButton('🤔 ʜᴏᴡ ᴛᴏ ᴜsᴇ ᴍᴇ ❓', callback_data='how_to_use')
-    ],[
-        InlineKeyboardButton('Aʙᴏᴜᴛ ✨️', callback_data='about'),
-        InlineKeyboardButton('⚙ Sᴇᴛᴛɪɴɢs', callback_data='settings#main')
-    ],[
-        InlineKeyboardButton('• back', callback_data='back')
-    ]]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    await query.message.edit_text(text=Script.HELP_TXT, reply_markup=reply_markup)
-
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
-
-@Client.on_callback_query(filters.regex(r'^how_to_use'))
-async def how_to_use(bot, query):
-    buttons = [[InlineKeyboardButton('• back', callback_data='help')]]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    await query.message.edit_text(
-        text=Script.HOW_USE_TXT,
-        reply_markup=reply_markup,
-        disable_web_page_preview=True
+    # Restarts belong to the process manager, not a Telegram shell command.
+    await message.reply_text(
+        "<b>Restart is managed by your hosting platform.</b>\n"
+        "Restart or redeploy the worker from its dashboard."
     )
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
-@Client.on_callback_query(filters.regex(r'^back'))
-async def back(bot, query):
-    reply_markup = InlineKeyboardMarkup(main_buttons)
+@Client.on_callback_query(filters.regex(r"^quick_forward$"))
+async def quick_forward(client, query):
+    if query.message.chat.id != query.from_user.id:
+        return await query.answer(
+            "Open the bot in a private chat to start forwarding.", show_alert=True
+        )
+    await query.answer()
+    # Replace the home menu immediately so repeated taps cannot start duplicate
+    # setup flows while the user is choosing a source or destination.
+    await query.message.edit_text("<b>Preparing forwarding setup…</b>")
+    # Reuse the /forward flow while retaining the clicker's identity (the
+    # callback Message.from_user would otherwise be the bot). Route its menu
+    # responses back into this same message instead of creating duplicates.
+    from .public import begin_forward
+
+    context = SimpleNamespace(
+        from_user=query.from_user,
+        chat=query.message.chat,
+        reply=query.message.edit_text,
+        reply_text=query.message.edit_text,
+        setup_message=query.message,
+        confirmation_reply=partial(client.send_message, query.message.chat.id),
+    )
+    await begin_forward(client, context)
+
+
+@Client.on_callback_query(filters.regex(r"^(?:home|back)$"))
+async def home(client, query):
+    await query.answer()
     await query.message.edit_text(
-       reply_markup=reply_markup,
-       text=Script.START_TXT.format(query.from_user.first_name))
-
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
-
-@Client.on_callback_query(filters.regex(r'^about'))
-async def about(bot, query):
-    buttons = [[
-         InlineKeyboardButton('• back', callback_data='help'),
-         InlineKeyboardButton('Stats ✨️', callback_data='status')
-    ]]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    await query.message.edit_text(
-        text=Script.ABOUT_TXT,
-        reply_markup=reply_markup,
-        disable_web_page_preview=True
+        home_text(query.from_user.first_name),
+        reply_markup=home_keyboard(),
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
-@Client.on_callback_query(filters.regex(r'^status'))
-async def status(bot, query):
-    users_count, bots_count = await db.total_users_bots_count()
-    forwardings = await db.forwad_count()
-    upt = await get_bot_uptime(START_TIME)
-    buttons = [[
-        InlineKeyboardButton('• back', callback_data='help'),
-        InlineKeyboardButton('System Stats ✨️', callback_data='systm_sts'),
-    ]]
-    reply_markup = InlineKeyboardMarkup(buttons)
+@Client.on_callback_query(filters.regex(r"^dashboard$"))
+async def dashboard(client, query):
+    await query.answer()
     await query.message.edit_text(
-        text=Script.STATUS_TXT.format(upt, users_count, bots_count, forwardings),
-        reply_markup=reply_markup,
-        disable_web_page_preview=True,
+        await dashboard_text(query.from_user.id),
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("🔄  Refresh", callback_data="dashboard")],
+                [InlineKeyboardButton("🏠 Main menu", callback_data="home")],
+            ]
+        ),
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
-@Client.on_callback_query(filters.regex(r'^systm_sts'))
-async def sys_status(bot, query):
-    buttons = [[InlineKeyboardButton('• back', callback_data='help')]]
-    ram = psutil.virtual_memory().percent
-    cpu = psutil.cpu_percent()
-    disk_usage = psutil.disk_usage('/')
-    total_space = disk_usage.total / (1024**3)  # Convert to GB
-    used_space = disk_usage.used / (1024**3)    # Convert to GB
-    free_space = disk_usage.free / (1024**3)
-    text = f"""
-╔════❰ sᴇʀᴠᴇʀ sᴛᴀᴛs  ❱═❍⊱❁۪۪
-║╭━━━━━━━━━━━━━━━➣
-║┣⪼ <b>ᴛᴏᴛᴀʟ ᴅɪsᴋ sᴘᴀᴄᴇ</b>: <code>{total_space:.2f} GB</code>
-║┣⪼ <b>ᴜsᴇᴅ</b>: <code>{used_space:.2f} GB</code>
-║┣⪼ <b>ꜰʀᴇᴇ</b>: <code>{free_space:.2f} GB</code>
-║┣⪼ <b>ᴄᴘᴜ</b>: <code>{cpu}%</code>
-║┣⪼ <b>ʀᴀᴍ</b>: <code>{ram}%</code>
-║╰━━━━━━━━━━━━━━━➣
-╚══════════════════❍⊱❁۪۪
-"""
-    reply_markup = InlineKeyboardMarkup(buttons)
+@Client.on_callback_query(filters.regex(r"^help$"))
+async def help_page(client, query):
+    await query.answer()
     await query.message.edit_text(
-        text,
-        reply_markup=reply_markup,
-        disable_web_page_preview=True,
+        Script.HELP_TXT,
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🏠 Home", callback_data="home")]]
+        ),
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
-async def get_bot_uptime(start_time):
-    # Calculate the uptime in seconds
-    uptime_seconds = int(time.time() - start_time)
-    uptime_minutes = uptime_seconds // 60
-    uptime_hours = uptime_minutes // 60
-    uptime_days = uptime_hours // 24
-    uptime_weeks = uptime_days // 7
-    uptime_string = ""
-    if uptime_hours != 0:
-        uptime_string += f" {uptime_hours % 24}H"
-    if uptime_minutes != 0:
-        uptime_string += f" {uptime_minutes % 60}M"
-    uptime_string += f" {uptime_seconds % 60} Sec"
-    return uptime_string   
-
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+@Client.on_callback_query(filters.regex(r"^how_to_use$"))
+async def how_to_use(client, query):
+    await query.answer()
+    await query.message.edit_text(
+        Script.HOW_USE_TXT,
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🏠 Main menu", callback_data="home")]]
+        ),
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
