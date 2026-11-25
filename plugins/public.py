@@ -16,6 +16,7 @@ from pyrogram.errors.exceptions.not_acceptable_406 import ChannelPrivate as Priv
 from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
 
 from database import db
+from forward_review import format_forwarding_settings
 from messages import Script
 
 from .ui import InlineKeyboardButton
@@ -293,7 +294,8 @@ async def begin_forward(
     else:
        toid = channels[0]['chat_id']
        to_title = channels[0]['title']
-    saved_sources = (await db.get_configs(user_id)).get("sources") or []
+    user_config = await db.get_configs(user_id)
+    saved_sources = user_config.get("sources") or []
     if selected_source is None and save_new_source is None:
         if saved_sources:
             return await message.reply_text(
@@ -431,6 +433,7 @@ async def begin_forward(
         f"<b>Account:</b> {escape(review_data['botname'])} (@{escape(review_data['botuname'])})\n"
         f"<b>Source:</b> {escape(review_data['from_chat'])}\n"
         f"<b>Destination:</b> {escape(review_data['to_chat'])}\n\n"
+        f"{format_forwarding_settings(user_config)}\n\n"
         "<b>Messages to skip:</b> enter a number (default: <code>0</code>).\n"
         "Tap <b>Start (skip 0)</b> to start now, or open Settings."
     )

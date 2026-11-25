@@ -76,6 +76,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         prompt.assert_awaited_once()
         self.assertIn("Messages to skip", prompt.await_args.args[2])
         self.assertIn("Saved source", prompt.await_args.args[2])
+        self.assertIn("Message types:", prompt.await_args.args[2])
         self.assertEqual(prompt.await_args.kwargs["callback_choices"]["🚀 Start (skip 0)"], "0")
         task = STS(forward_id)
         self.assertTrue(task.verify())
