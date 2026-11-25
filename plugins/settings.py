@@ -10,6 +10,7 @@ from .ui import InlineKeyboardButton
 from database import db
 from messages import Script
 from message_filter_presets import filters_for_preset
+from forward_review import PENDING_REVIEW
 
 from .clients import CLIENT, get_configs, parse_buttons, update_configs
 from .db import connect_user_db
@@ -25,7 +26,7 @@ async def settings(client, message):
    await message.reply_text(
      "<b>⚙️ Forwarding settings</b>\n\n"
      "Manage your connected accounts, destinations, and message rules below.",
-     reply_markup=main_buttons()
+     reply_markup=main_buttons(PENDING_REVIEW.get(message.from_user.id))
      )
 
 
@@ -35,10 +36,16 @@ async def settings_query(bot, query):
   i, type = query.data.split("#")
   buttons = [[InlineKeyboardButton('⬅️ Back', callback_data="settings#main")]]
   if type=="main":
-     await query.message.edit_text(
-       "<b>⚙️ Forwarding settings</b>\n\n"
-       "Manage your connected accounts, destinations, and message rules below.",
-       reply_markup=main_buttons())
+     task_id = PENDING_REVIEW.get(user_id)
+     description = (
+         "<b>⚙️ Forwarding settings</b>\n\n"
+         "Choose a section to edit. Your changes save immediately. "
+         "Use <b>Continue & start forwarding</b> when ready."
+         if task_id
+         else "<b>⚙️ Forwarding settings</b>\n\n"
+         "Manage your connected accounts, destinations, and message rules below."
+     )
+     await query.message.edit_text(description, reply_markup=main_buttons(task_id))
   elif type=="extra":
        await query.message.edit_text(
          "<b>⚙️ Advanced forwarding rules</b>",
@@ -606,7 +613,7 @@ def extra_buttons():
    return InlineKeyboardMarkup(buttons)
 
 
-def main_buttons():
+def main_buttons(continue_task_id=None):
   buttons = [
        [
            InlineKeyboardButton('🤖 Accounts', callback_data='settings#bots'),
@@ -620,6 +627,19 @@ def main_buttons():
        [InlineKeyboardButton('⚙️ Advanced rules', callback_data='settings#extra')],
        [InlineKeyboardButton('🏠 Main menu', callback_data='home')],
   ]
+  if continue_task_id:
+      buttons.append([
+          InlineKeyboardButton(
+              '✅ Continue & start forwarding',
+              callback_data=f'continue_public_{continue_task_id}',
+          )
+      ])
+      buttons.append([
+          InlineKeyboardButton(
+              '❌ Cancel task setup',
+              callback_data=f'cancel_public_{continue_task_id}',
+          )
+      ])
   return InlineKeyboardMarkup(buttons)
 
 

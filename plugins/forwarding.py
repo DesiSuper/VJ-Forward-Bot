@@ -13,7 +13,7 @@ from .ui import InlineKeyboardButton
 from config import temp
 from database import db
 from forwarding_delay import choose_random_gap, normalize_random_gap
-from forward_review import format_forwarding_settings
+from forward_review import PENDING_REVIEW, format_forwarding_settings
 from messages import Script
 
 from .clients import CLIENT, get_client, iter_messages
@@ -176,15 +176,28 @@ async def review_forwarding_task(bot, query):
 
     await query.answer()
     config = await db.get_configs(user)
+    from .settings import main_buttons
+
+    PENDING_REVIEW[user] = forward_id
     base_text = query.message.text or "<b>Review forwarding task</b>"
-    review_text = f"{base_text}\n\n{format_forwarding_settings(config)}"
-    buttons = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("✅ Continue", callback_data=f"continue_public_{forward_id}")],
-            [InlineKeyboardButton("❌ Cancel", callback_data="close_btn")],
-        ]
+    review_text = (
+        f"{base_text}\n\n{format_forwarding_settings(config)}\n\n"
+        "<b>To change an option, open its settings section below.</b> "
+        "Changes save immediately. Press <b>Continue & start forwarding</b> when ready."
     )
-    await query.message.edit_text(review_text, reply_markup=buttons)
+    await query.message.edit_text(review_text, reply_markup=main_buttons(forward_id))
+
+
+@Client.on_callback_query(filters.regex(r"^cancel_public_"))
+async def cancel_forwarding_review(bot, query):
+    user = query.from_user.id
+    if query.message.chat.id != user:
+        return await query.answer("Open this setup in your private chat to cancel it.", show_alert=True)
+    forward_id = query.data.split("_", 2)[2]
+    if PENDING_REVIEW.get(user) == forward_id:
+        PENDING_REVIEW.pop(user, None)
+    await query.answer("Forward setup cancelled.")
+    await query.message.delete()
 
 
 @Client.on_callback_query(filters.regex(r"^continue_public_"))
@@ -204,6 +217,7 @@ async def pub_(bot, message):
     # Reserve immediately so rapid repeated taps cannot start overlapping tasks.
     temp.lock[user] = True
     temp.IS_FRWD_CHAT.append(i.TO)
+    PENDING_REVIEW.pop(user, None)
     m = await msg_edit(message.message, "<b>Preparing your forwarding task…</b>")
     _bot, caption, forward_tag, datas, protect, button = await sts.get_data(user)
     random_gap = normalize_random_gap(datas.get("random_gap"))

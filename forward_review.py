@@ -7,6 +7,8 @@ from typing import Any
 
 from forwarding_delay import normalize_random_gap
 
+PENDING_REVIEW: dict[int, str] = {}
+
 MESSAGE_TYPE_LABELS = (
     ("text", "Text"),
     ("document", "Documents"),

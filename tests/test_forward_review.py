@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from config import temp
 from forward_review import format_forwarding_settings
 from plugins.forwarding import review_forwarding_task
+from plugins.settings import main_buttons
 from plugins.utils import STS
 
 
@@ -37,6 +38,17 @@ class ForwardReviewTests(unittest.TestCase):
         self.assertIn("&lt;b&gt;unsafe&lt;/b&gt;", text)
         self.assertNotIn("<b>unsafe</b>", text)
 
+    def test_task_dashboard_has_continue_and_cancel_actions(self):
+        markup = main_buttons("123-456")
+        callback_data = [
+            button.callback_data
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+        self.assertIn("continue_public_123-456", callback_data)
+        self.assertIn("cancel_public_123-456", callback_data)
+
 
 class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_start_button_shows_settings_and_continue_action(self):
@@ -68,7 +80,15 @@ class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
         edited_text = message.edit_text.await_args.args[0]
         self.assertIn("Selected forwarding settings", edited_text)
         markup = message.edit_text.await_args.kwargs["reply_markup"]
-        self.assertEqual(markup.inline_keyboard[0][0].callback_data, f"continue_public_{forward_id}")
+        callback_data = [
+            button.callback_data
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+        self.assertIn("settings#filters", callback_data)
+        self.assertIn(f"continue_public_{forward_id}", callback_data)
+        self.assertIn(f"cancel_public_{forward_id}", callback_data)
 
         STS(forward_id).data.pop(forward_id, None)
 
