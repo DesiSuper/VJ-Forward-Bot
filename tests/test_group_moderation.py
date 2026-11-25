@@ -10,6 +10,7 @@ from plugins.group_moderation import (
     _extract_urls,
     enforce_global_blacklist,
     manage_global_blacklist,
+    set_global_blacklist_delay,
     matching_entry_delays,
     normalize_blacklisted_url,
     parse_delay,
@@ -159,34 +160,12 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
         ):
             await manage_global_blacklist(object(), message)
 
-        add.assert_awaited_once_with("word", "bad phrase", 0)
+        add.assert_awaited_once_with("word", "bad phrase")
         self.assertIn("all groups", message.reply_text.await_args.args[0])
 
-    async def test_admin_can_add_entry_with_per_entry_delay(self):
+    async def test_dedicated_command_sets_an_existing_entry_delay(self):
         message = SimpleNamespace(
-            text="/blacklist url add spam.example --delay 2m",
-            from_user=SimpleNamespace(id=123),
-            chat=SimpleNamespace(id=-10099),
-            reply_text=AsyncMock(),
-        )
-        with (
-            patch(
-                "plugins.group_moderation._is_group_admin",
-                new=AsyncMock(return_value=True),
-            ),
-            patch(
-                "plugins.group_moderation.db.add_global_blacklist_entry",
-                new=AsyncMock(),
-            ) as add,
-        ):
-            await manage_global_blacklist(object(), message)
-
-        add.assert_awaited_once_with("url", "spam.example", 120)
-        self.assertIn("after 2m", message.reply_text.await_args.args[0])
-
-    async def test_admin_can_change_an_existing_entry_delay(self):
-        message = SimpleNamespace(
-            text="/blacklist word delay bad phrase 45s",
+            text="/blacklistdelay word bad phrase 45s",
             from_user=SimpleNamespace(id=123),
             chat=SimpleNamespace(id=-10099),
             reply_text=AsyncMock(),
@@ -201,10 +180,34 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=True),
             ) as set_delay,
         ):
-            await manage_global_blacklist(object(), message)
+            await set_global_blacklist_delay(object(), message)
 
         set_delay.assert_awaited_once_with("word", "bad phrase", 45)
         self.assertIn("after 45s", message.reply_text.await_args.args[0])
+
+    async def test_non_admin_cannot_change_global_blacklist_delay(self):
+        message = SimpleNamespace(
+            text="/blacklistdelay word bad phrase 1m",
+            from_user=SimpleNamespace(id=456),
+            chat=SimpleNamespace(id=-10099),
+            reply_text=AsyncMock(),
+        )
+        with (
+            patch(
+                "plugins.group_moderation._is_group_admin",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "plugins.group_moderation.db.set_global_blacklist_entry_delay",
+                new=AsyncMock(),
+            ) as set_delay,
+        ):
+            await set_global_blacklist_delay(object(), message)
+
+        set_delay.assert_not_awaited()
+        self.assertIn(
+            "Only this group's administrators", message.reply_text.await_args.args[0]
+        )
 
     async def test_non_admin_cannot_change_global_blacklist(self):
         message = SimpleNamespace(

@@ -25,7 +25,6 @@ _PENDING_DELETIONS: set[asyncio.Task] = set()
 _DURATION_RE = re.compile(
     r"^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes)$", re.I
 )
-_DELAY_OPTION_RE = re.compile(r"\s+--delay(?:=|\s+)(.+)$", re.I)
 _URL_CANDIDATE = re.compile(
     r"(?i)(?<![\w@.-])(?:https?://)?(?:www\.)?"
     r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}"
@@ -211,15 +210,25 @@ def _blacklist_help() -> str:
         "<b>Global group blacklist</b>\n"
         "Entries apply in every group. Messages are deleted silently after the "
         "delay configured on each entry (default: immediately).\n\n"
-        "<code>/blacklist word add phrase --delay 30s</code>\n"
-        "<code>/blacklist url add spam.example --delay 2m</code>\n"
-        "<code>/blacklist word delay phrase 45s</code>\n"
-        "<code>/blacklist url delay spam.example 3m</code>\n"
+        "<code>/blacklist word add phrase</code>\n"
+        "<code>/blacklist url add spam.example</code>\n"
         "<code>/blacklist word remove phrase</code>\n"
         "<code>/blacklist url remove spam.example</code>\n"
         "<code>/blacklist list</code>\n"
+        "Set a rule's delete time separately with "
+        "<code>/blacklistdelay word phrase 30s</code> or "
+        "<code>/blacklistdelay url spam.example 2m</code>. "
         "Delay units: seconds (s) or minutes (m), maximum 24 hours."
     )
+
+
+def _normalize_entry(kind: str, value: str) -> str:
+    if kind == "word":
+        value = " ".join(value.split())
+        if len(value) < 3 or len(value) > 80:
+            raise ValueError("Blacklist words/phrases must be 3–80 characters.")
+        return value.casefold()
+    return normalize_blacklisted_url(value)
 
 
 @Client.on_message(filters.group & filters.command("blacklist"))
@@ -259,60 +268,19 @@ async def manage_global_blacklist(client, message):
     if action not in {"word", "words", "url", "urls"} or len(parts) < 4:
         return await message.reply_text(_blacklist_help())
     kind = "word" if action in {"word", "words"} else "url"
-    operation, payload = parts[2].lower(), parts[3].strip()
-    if operation not in {"add", "remove", "del", "delete", "delay"} or not payload:
+    operation, value = parts[2].lower(), parts[3].strip()
+    if operation not in {"add", "remove", "del", "delete"} or not value:
         return await message.reply_text(_blacklist_help())
 
-    delay_seconds = 0
-    value = payload
-    if operation == "delay":
-        match = re.fullmatch(
-            r"(.+?)\s+(\d+\s*(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes))",
-            payload,
-            re.I,
-        )
-        if match is None:
-            return await message.reply_text(
-                "Specify an entry and delay, e.g. <code>/blacklist word delay phrase 30s</code>."
-            )
-        value = match.group(1).strip()
-        try:
-            delay_seconds = parse_delay(match.group(2))
-        except ValueError as error:
-            return await message.reply_text(str(error))
-    elif operation == "add":
-        delay_match = _DELAY_OPTION_RE.search(payload)
-        if delay_match:
-            value = payload[: delay_match.start()].strip()
-            try:
-                delay_seconds = parse_delay(delay_match.group(1))
-            except ValueError as error:
-                return await message.reply_text(str(error))
-
-    if kind == "word":
-        value = " ".join(value.split())
-        if len(value) < 3 or len(value) > 80:
-            return await message.reply_text(
-                "Blacklist words/phrases must be 3–80 characters."
-            )
-        value = value.casefold()
-    else:
-        try:
-            value = normalize_blacklisted_url(value)
-        except ValueError as error:
-            return await message.reply_text(str(error))
+    try:
+        value = _normalize_entry(kind, value)
+    except ValueError as error:
+        return await message.reply_text(str(error))
 
     try:
         if operation == "add":
-            await db.add_global_blacklist_entry(kind, value, delay_seconds)
-            result = "added"
-        elif operation == "delay":
-            updated = await db.set_global_blacklist_entry_delay(
-                kind, value, delay_seconds
-            )
-            if not updated:
-                return await message.reply_text("That blacklist entry was not found.")
-            result = "updated"
+            await db.add_global_blacklist_entry(kind, value)
+            result = "added (delete immediately)"
         else:
             await db.remove_global_blacklist_entry(kind, value)
             result = "removed"
@@ -325,8 +293,65 @@ async def manage_global_blacklist(client, message):
     _invalidate_blacklist_cache()
     return await message.reply_text(
         f"<b>✓ {kind.title()} entry {result} for all groups.</b>\n"
-        f"<code>{escape(value)}</code> — "
-        f"{'immediately' if delay_seconds == 0 else f'after {_format_delay(delay_seconds)}'}"
+        f"<code>{escape(value)}</code>"
+    )
+
+
+@Client.on_message(filters.group & filters.command("blacklistdelay"))
+async def set_global_blacklist_delay(client, message):
+    """Configure the per-entry delay with a dedicated admin command."""
+    if not await _is_group_admin(client, message):
+        return await message.reply_text(
+            "Only this group's administrators can manage blacklist delays."
+        )
+
+    parts = (message.text or "").split(maxsplit=2)
+    if len(parts) < 3:
+        return await message.reply_text(
+            "Usage: <code>/blacklistdelay word phrase 30s</code> or "
+            "<code>/blacklistdelay url spam.example 2m</code>. "
+            "Use <code>0s</code> for immediate deletion."
+        )
+
+    kind_text, payload = parts[1].lower(), parts[2].strip()
+    if kind_text not in {"word", "words", "url", "urls"}:
+        return await message.reply_text(
+            "Choose <code>word</code> or <code>url</code>, then the entry and its delay."
+        )
+    kind = "word" if kind_text in {"word", "words"} else "url"
+    match = re.fullmatch(
+        r"(.+?)\s+(\d+\s*(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes))",
+        payload,
+        re.I,
+    )
+    if match is None:
+        return await message.reply_text(
+            "Add the delay at the end, e.g. <code>/blacklistdelay word phrase 30s</code>."
+        )
+    raw_value = match.group(1).strip()
+    try:
+        value = _normalize_entry(kind, raw_value)
+        delay_seconds = parse_delay(match.group(2))
+    except ValueError as error:
+        return await message.reply_text(str(error))
+
+    try:
+        updated = await db.set_global_blacklist_entry_delay(kind, value, delay_seconds)
+    except Exception:
+        logger.exception("Could not update a global blacklist delay")
+        return await message.reply_text(
+            "Could not update the blacklist delay right now. Please try again."
+        )
+    if not updated:
+        return await message.reply_text("That blacklist entry was not found.")
+
+    _invalidate_blacklist_cache()
+    delay_text = (
+        "immediately" if delay_seconds == 0 else f"after {_format_delay(delay_seconds)}"
+    )
+    return await message.reply_text(
+        f"<b>✓ {kind.title()} entry will be deleted {delay_text} in all groups:</b>\n"
+        f"<code>{escape(value)}</code>"
     )
 
 
