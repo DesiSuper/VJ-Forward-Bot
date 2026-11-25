@@ -24,6 +24,8 @@ CLIENT = CLIENT()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 TEXT = Script.TEXT
+_PROGRESS_EDIT_INTERVAL = 5.0
+_LAST_PROGRESS_EDIT: dict[tuple[int, int], float] = {}
 PROGRESS = (
     "<b>Forwarding task</b>\n\n"
     "<b>Progress:</b> <code>{}%</code>\n"
@@ -325,6 +327,13 @@ async def msg_edit(msg, text, button=None, wait=None):
 
 
 async def edit(user, msg, title, status, sts):
+   key = (user, msg.id)
+   now_monotonic = time.monotonic()
+   terminal = status in {"cancelled", "completed"}
+   last_edit = _LAST_PROGRESS_EDIT.get(key)
+   if not terminal and last_edit is not None and now_monotonic - last_edit < _PROGRESS_EDIT_INTERVAL:
+       return
+   _LAST_PROGRESS_EDIT[key] = now_monotonic
    i = sts.get(full=True)
    status = 'Forwarding' if status == 5 else f"sleeping {status} s" if str(status).isnumeric() else status
    percentage = f"{float(i.fetched)*100/float(i.total):.0f}"
@@ -347,6 +356,8 @@ async def edit(user, msg, title, status, sts):
    else:
       button.append([InlineKeyboardButton('🛑 Cancel task', callback_data='terminate_frwd')])
    await msg_edit(msg, text, InlineKeyboardMarkup(button))
+   if terminal:
+      _LAST_PROGRESS_EDIT.pop(key, None)
 
 
 async def is_cancelled(client, user, msg, sts):

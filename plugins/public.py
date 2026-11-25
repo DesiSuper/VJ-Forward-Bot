@@ -17,7 +17,7 @@ from database import db
 from messages import Script
 
 from .ui import InlineKeyboardButton
-from .utils import STS
+from .utils import STS, get_forward_origin, get_forwarded_chat
 from .prompts import ask as prompt_for_input
 
 logger = logging.getLogger(__name__)
@@ -84,8 +84,9 @@ async def begin_forward(bot, message, user_id=None, selected_destination=None):
     if fromid.text and fromid.text.strip().lower() == "/cancel":
         return await message.reply(Script.CANCEL)
 
-    source_chat = getattr(fromid, "forward_from_chat", None)
-    if fromid.text and not getattr(fromid, "forward_date", None):
+    origin = get_forward_origin(fromid)
+    source_chat = get_forwarded_chat(fromid)
+    if fromid.text and not getattr(origin, "date", None):
         regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
         match = regex.match(fromid.text.strip().replace("?single", ""))
         if not match:
@@ -100,7 +101,7 @@ async def begin_forward(bot, message, user_id=None, selected_destination=None):
         enums.ChatType.SUPERGROUP,
         enums.ChatType.FORUM,
     }:
-        last_msg_id = getattr(fromid, "forward_from_message_id", None)
+        last_msg_id = getattr(origin, "message_id", None)
         if last_msg_id is None:
             return await message.reply_text(
                 "<b>This forwarded message hides its original message ID.</b> Send a link to a message in that chat instead."
@@ -115,7 +116,7 @@ async def begin_forward(bot, message, user_id=None, selected_destination=None):
   #  except ChannelInvalid:
         #return await fromid.reply("**Given source chat is copyrighted channel/group. you can't forward messages from there**")
     except (PrivateChat, ChannelPrivate, ChannelInvalid):
-        title = "private" if fromid.text else fromid.forward_from_chat.title
+        title = source_chat.title if source_chat else "private"
     except (UsernameInvalid, UsernameNotModified):
         return await message.reply('<b>That Telegram link could not be resolved.</b> Check it and try again.')
     except Exception:

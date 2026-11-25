@@ -12,6 +12,19 @@ from .clients import parse_buttons
 STATUS: dict[str, dict[str, Any]] = {}
 
 
+def get_forward_origin(message: Any) -> Any:
+    """Return Kurigram's modern forwarding-origin object, if present."""
+    return getattr(message, "forward_origin", None)
+
+
+def get_forwarded_chat(message: Any) -> Any:
+    """Get the original chat across channel and chat forward-origin variants."""
+    origin = get_forward_origin(message)
+    if origin is None:
+        return None
+    return getattr(origin, "chat", None) or getattr(origin, "sender_chat", None)
+
+
 class STS:
     """In-memory progress state for a forwarding task."""
 

@@ -15,6 +15,7 @@ from messages import Script
 
 from .clients import CLIENT, get_client
 from .prompts import ask as prompt_for_input
+from .utils import get_forwarded_chat
 
 CLIENT = CLIENT()
 COMPLETED_BTN = InlineKeyboardMarkup(
@@ -83,8 +84,13 @@ async def unequify(client, message):
       chat_id = match.group(4)
       if chat_id.isnumeric():
          chat_id  = int("-100" + chat_id)
-   elif target.forward_from_chat.type in [enums.ChatType.CHANNEL, 'supergroup']:
-        chat_id = target.forward_from_chat.username or target.forward_from_chat.id
+   elif (forwarded_chat := get_forwarded_chat(target)) and forwarded_chat.type in {
+        enums.ChatType.CHANNEL,
+        enums.ChatType.GROUP,
+        enums.ChatType.SUPERGROUP,
+        enums.ChatType.FORUM,
+   }:
+        chat_id = forwarded_chat.username or forwarded_chat.id
    else:
         return await message.reply_text("<b>Could not identify the chat.</b> Forward a message from it or send a message link.")
    confirm = await prompt_for_input(client, user_id, text="<b>Confirm duplicate cleanup</b>\nThis will delete duplicate documents from the selected chat. Send <code>/yes</code> to continue or <code>/no</code> to cancel.")

@@ -14,6 +14,7 @@ from message_filter_presets import filters_for_preset
 from .clients import CLIENT, get_configs, parse_buttons, update_configs
 from .db import connect_user_db
 from .prompts import InputPromptAlreadyActive, ask as prompt_for_input
+from .utils import get_forward_origin, get_forwarded_chat
 
 CLIENT = CLIENT()
 logger = logging.getLogger(__name__)
@@ -191,11 +192,12 @@ async def settings_query(bot, query):
             "<b>Setup cancelled.</b>",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
-     if not chat_ids.forward_date:
+     origin = get_forward_origin(chat_ids)
+     if not getattr(origin, "date", None):
         return await chat_ids.reply_text(
             "<b>That message was not forwarded.</b> Forward a message from the target group or channel."
         )
-     destination = getattr(chat_ids, "forward_from_chat", None)
+     destination = get_forwarded_chat(chat_ids)
      if destination is None:
         return await chat_ids.reply_text(
             "<b>Could not identify a destination chat.</b> Forward a message from a group or channel."
