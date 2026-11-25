@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from html import escape
 from types import SimpleNamespace
 
@@ -148,6 +149,8 @@ async def quick_forward(client, query):
         chat=query.message.chat,
         reply=query.message.edit_text,
         reply_text=query.message.edit_text,
+        setup_message=query.message,
+        confirmation_reply=partial(client.send_message, query.message.chat.id),
     )
     await begin_forward(client, context)
 

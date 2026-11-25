@@ -77,6 +77,54 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task.get("limit"), 987)
         task.data.pop(forward_id, None)
 
+    async def test_saved_source_falls_back_to_forwarded_message_when_history_read_fails(self):
+        user_id = 78903
+        forward_id = f"{user_id}-556"
+        setup_message = SimpleNamespace(delete=AsyncMock(), edit_text=AsyncMock())
+        confirmation_reply = AsyncMock()
+        message = SimpleNamespace(
+            chat=SimpleNamespace(id=user_id),
+            reply=AsyncMock(),
+            reply_text=AsyncMock(),
+            setup_message=setup_message,
+            confirmation_reply=confirmation_reply,
+        )
+        source = {"chat_id": -100222, "title": "Saved source"}
+        endpoint = SimpleNamespace(
+            text=None,
+            forward_origin=SimpleNamespace(
+                date=object(),
+                message_id=987,
+                chat=SimpleNamespace(id=-100222),
+            ),
+        )
+        skip_reply = SimpleNamespace(text="0", id=556)
+
+        with (
+            patch("plugins.public.db.get_bot", new=AsyncMock(return_value={"name": "My bot", "username": "my_bot"})),
+            patch("plugins.public.db.get_user_channels", new=AsyncMock(return_value=[{"chat_id": -100111, "title": "Destination"}])),
+            patch("plugins.public.db.get_configs", new=AsyncMock(return_value={"sources": [source]})),
+            patch("plugins.public.latest_source_message_id", new=AsyncMock(side_effect=RuntimeError("history unavailable"))),
+            patch("plugins.public.prompt_for_input", new=AsyncMock(side_effect=[endpoint, skip_reply])) as prompt,
+        ):
+            await begin_forward(
+                object(),
+                message,
+                user_id=user_id,
+                selected_destination=(-100111, "Destination"),
+                selected_source=source,
+            )
+
+        self.assertEqual(prompt.await_count, 2)
+        self.assertIn("could not fetch", prompt.await_args_list[0].args[2].lower())
+        self.assertTrue(STS(forward_id).verify())
+        self.assertEqual(STS(forward_id).get("limit"), 987)
+        setup_message.delete.assert_awaited_once()
+        confirmation_reply.assert_awaited_once()
+        self.assertIn("Review forwarding task", confirmation_reply.await_args.kwargs["text"])
+        message.reply_text.assert_not_awaited()
+        STS(forward_id).data.pop(forward_id, None)
+
     def test_source_picker_and_manager_offer_keep_add_and_remove_actions(self):
         sources = [
             {"chat_id": -100222, "title": "First source"},

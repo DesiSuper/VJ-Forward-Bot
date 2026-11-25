@@ -45,6 +45,7 @@ class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
         message = SimpleNamespace(
             chat=SimpleNamespace(id=333),
             edit_text=AsyncMock(),
+            reply_text=AsyncMock(),
         )
         query = SimpleNamespace(
             from_user=user,
@@ -52,9 +53,10 @@ class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
             answer=AsyncMock(),
         )
         begin_forward = AsyncMock()
+        client = SimpleNamespace(send_message=AsyncMock())
 
         with patch("plugins.public.begin_forward", new=begin_forward):
-            await quick_forward(object(), query)
+            await quick_forward(client, query)
 
         message.edit_text.assert_awaited_once_with("<b>Preparing forwarding setup…</b>")
         begin_forward.assert_awaited_once()
@@ -62,6 +64,9 @@ class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.from_user, user)
         self.assertEqual(context.chat, message.chat)
         self.assertIs(context.reply_text, message.edit_text)
+        self.assertIs(context.setup_message, message)
+        self.assertIs(context.confirmation_reply.func, client.send_message)
+        self.assertEqual(context.confirmation_reply.args, (message.chat.id,))
 
     async def test_help_page_only_shows_home_navigation(self):
         query = SimpleNamespace(

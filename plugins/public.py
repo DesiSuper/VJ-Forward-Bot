@@ -1,6 +1,7 @@
 
 import logging
 import re
+from functools import partial
 from html import escape
 from types import SimpleNamespace
 
@@ -47,7 +48,7 @@ async def choose_destination(bot, query):
     await query.message.edit_text("<b>Destination selected. Preparing source selection…</b>")
     return await begin_forward(
         bot,
-        _editing_message_context(query),
+        _editing_message_context(query, bot),
         user_id=user_id,
         selected_destination=(destination["chat_id"], destination["title"]),
     )
@@ -69,7 +70,7 @@ async def choose_source(bot, query):
     )
     return await begin_forward(
         bot,
-        _editing_message_context(query),
+        _editing_message_context(query, bot),
         user_id=user_id,
         selected_destination=(destination["chat_id"], destination["title"]),
         selected_source=source,
@@ -89,7 +90,7 @@ async def add_source(bot, query):
     await query.message.edit_text("<b>Waiting for the new source channel…</b>")
     return await begin_forward(
         bot,
-        _editing_message_context(query),
+        _editing_message_context(query, bot),
         user_id=user_id,
         selected_destination=(destination["chat_id"], destination["title"]),
         save_new_source=mode == "save",
@@ -142,12 +143,14 @@ async def remove_source(bot, query):
     return await show_source_manager(query.message, user_id, destination)
 
 
-def _editing_message_context(query):
+def _editing_message_context(query, bot):
     return SimpleNamespace(
         from_user=query.from_user,
         chat=query.message.chat,
         reply=query.message.edit_text,
         reply_text=query.message.edit_text,
+        setup_message=query.message,
+        confirmation_reply=partial(bot.send_message, query.message.chat.id),
     )
 
 
@@ -285,14 +288,42 @@ async def begin_forward(
         try:
             last_msg_id = await latest_source_message_id(user_id, chat_id)
         except Exception:
-            logger.exception("Could not load the latest message from saved source for user %s", user_id)
-            return await message.reply_text(
-                "<b>Could not read this saved source.</b> Make sure the connected account can access it."
+            logger.warning(
+                "Could not automatically read latest message from saved source for user %s; asking for a forwarded message",
+                user_id,
+                exc_info=True,
             )
+            last_msg_id = None
         if last_msg_id is None:
-            return await message.reply_text(
-                "<b>No messages were found in this saved source.</b> Send a message to the channel first, then try again."
-            )
+            try:
+                endpoint_message = await prompt_for_input(
+                    bot,
+                    message.chat.id,
+                    "<b>Source channel selected.</b> I could not fetch its latest message automatically. "
+                    "Forward any recent message from this saved channel to continue.\n"
+                    "Send <code>/cancel</code> to stop.",
+                    filters=filters.all,
+                    timeout=600,
+                )
+            except TimeoutError:
+                return await message.reply_text("<b>Source selection timed out.</b> Start again with <code>/forward</code>.")
+            if (endpoint_message.text or "").strip().lower() == "/cancel":
+                return await message.reply(Script.CANCEL)
+            endpoint_origin = get_forward_origin(endpoint_message)
+            endpoint_chat = get_forwarded_chat(endpoint_message)
+            if (
+                not getattr(endpoint_origin, "date", None)
+                or endpoint_chat is None
+                or str(endpoint_chat.id) != str(chat_id)
+            ):
+                return await message.reply_text(
+                    "<b>That message is not from the saved source.</b> Forward a message from the selected channel."
+                )
+            last_msg_id = getattr(endpoint_origin, "message_id", None)
+            if last_msg_id is None:
+                return await message.reply_text(
+                    "<b>This forwarded message hides its original ID.</b> Try another message from the saved source."
+                )
     else:
         try:
             fromid = await prompt_for_input(
@@ -375,15 +406,33 @@ async def begin_forward(
         InlineKeyboardButton('❌ Cancel', callback_data="close_btn")
     ]]
     reply_markup = InlineKeyboardMarkup(buttons)
-    await message.reply_text(
-        text=Script.DOUBLE_CHECK.format(
-            botname=escape(str(_bot.get('name') or 'Connected account')),
-            botuname=escape(str(_bot.get('username') or 'no username')),
-            from_chat=escape(str(title)),
-            to_chat=escape(str(to_title)),
-            skip=escape(str(skip_count)),
-        ),
-        link_preview_options=LinkPreviewOptions(is_disabled=True),
-        reply_markup=reply_markup
+    confirmation_text = Script.DOUBLE_CHECK.format(
+        botname=escape(str(_bot.get('name') or 'Connected account')),
+        botuname=escape(str(_bot.get('username') or 'no username')),
+        from_chat=escape(str(title)),
+        to_chat=escape(str(to_title)),
+        skip=escape(str(skip_count)),
     )
+    setup_message = getattr(message, "setup_message", None)
+    confirmation_reply = getattr(message, "confirmation_reply", None)
+    if setup_message is not None and confirmation_reply is not None:
+        try:
+            await setup_message.delete()
+        except Exception:
+            logger.warning("Could not remove temporary forwarding menu for user %s", user_id)
+            try:
+                await setup_message.edit_text("<b>Setup complete. Review the latest forwarding confirmation below.</b>")
+            except Exception:
+                logger.debug("Could not clear temporary forwarding menu for user %s", user_id)
+        await confirmation_reply(
+            text=confirmation_text,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+            reply_markup=reply_markup,
+        )
+    else:
+        await message.reply_text(
+            text=confirmation_text,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+            reply_markup=reply_markup,
+        )
     STS(forward_id).store(chat_id, toid, skip_count, int(last_msg_id))
