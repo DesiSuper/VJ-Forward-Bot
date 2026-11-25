@@ -10,7 +10,7 @@ from .ui import InlineKeyboardButton
 
 from database import db
 from messages import Script
-from message_filter_presets import filters_for_preset
+from message_filter_presets import MESSAGE_TYPES, filters_for_preset
 from forwarding_delay import normalize_random_gap
 from forward_review import PENDING_REVIEW, format_forwarding_settings
 
@@ -35,8 +35,13 @@ async def settings_query(bot, query):
   user_id = query.from_user.id
   i, type = query.data.split("#")
   buttons = [[InlineKeyboardButton('⬅️ Back', callback_data="settings#main")]]
-  if type in {"main", "extra", "filters", "nextfilters", "filter_presets"}:
+  if type in {"main", "extra", "filters", "nextfilters"}:
      text, markup = await settings_dashboard(user_id, PENDING_REVIEW.get(user_id))
+     return await query.message.edit_text(text, reply_markup=markup)
+
+  elif type in {"quick_settings", "filter_presets"}:
+     config = await get_configs(user_id)
+     text, markup = quick_settings_dashboard(config, PENDING_REVIEW.get(user_id))
      return await query.message.edit_text(text, reply_markup=markup)
 
   elif type in {"size_filter", "file_size", "maxfile_size"}:
@@ -377,7 +382,7 @@ async def settings_query(bot, query):
      for disabled_type in ("voice", "animation", "sticker", "poll"):
         configs["filters"][disabled_type] = False
      await db.update_configs(user_id, configs)
-     text, markup = await settings_dashboard(user_id, PENDING_REVIEW.get(user_id))
+     text, markup = quick_settings_dashboard(configs, PENDING_REVIEW.get(user_id))
      return await query.message.edit_text(text, reply_markup=markup)
 
   elif type.startswith("updatefilter"):
@@ -546,11 +551,7 @@ async def settings_dashboard(user_id, continue_task_id=None):
             message_type_toggle("🎧 Audio", selected_filters.get("audio", True), "audio"),
             message_type_toggle("🔘 Video notes", selected_filters.get("video_note", True), "video_note"),
         ],
-        [
-            InlineKeyboardButton("🌐 All supported", callback_data="settings#filterpreset:all"),
-            InlineKeyboardButton("🖼️ Media only", callback_data="settings#filterpreset:media"),
-            InlineKeyboardButton("🎞️📷🎧 Video/photo/audio", callback_data="settings#filterpreset:video_photo_audio"),
-        ],
+        [InlineKeyboardButton("⚡ Quick settings", callback_data="settings#quick_settings")],
         [
             message_type_toggle("↪️ Forward original", config.get("forward_tag", False), "forward_tag"),
             message_type_toggle("🧹 Skip duplicates", config.get("duplicate", True), "duplicate"),
@@ -571,6 +572,58 @@ async def settings_dashboard(user_id, continue_task_id=None):
         append_task_controls(keyboard, continue_task_id)
     else:
         keyboard.append([InlineKeyboardButton("🏠 Main menu", callback_data="home")])
+    return text, InlineKeyboardMarkup(keyboard)
+
+
+def quick_settings_dashboard(config, continue_task_id=None):
+    current_filters = config.get("filters") or {}
+    preset_options = (
+        ("all", "🌐 All supported", filters_for_preset("all")),
+        ("media", "🖼️ Media only", filters_for_preset("media")),
+        ("video_photo_audio", "🎞️📷🎧 Video, photo & audio", filters_for_preset("video_photo_audio")),
+    )
+    selected_preset = next(
+        (
+            name
+            for name, _, preset_filters in preset_options
+            if all(current_filters.get(message_type, True) == preset_filters[message_type]
+                   for message_type in MESSAGE_TYPES)
+        ),
+        None,
+    )
+    type_labels = {
+        "text": "Text",
+        "document": "Documents",
+        "video": "Videos",
+        "photo": "Photos",
+        "audio": "Audio",
+        "video_note": "Video notes",
+    }
+    selected_types = [
+        type_labels[message_type]
+        for message_type in MESSAGE_TYPES
+        if current_filters.get(message_type, True)
+    ]
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                f"✅ {label}" if selected_preset == name else label,
+                callback_data=f"settings#filterpreset:{name}",
+            )
+        ]
+        for name, label, _ in preset_options
+    ]
+    keyboard.append([InlineKeyboardButton("⬅️ Back to all settings", callback_data="settings#main")])
+    if continue_task_id:
+        append_task_controls(keyboard, continue_task_id)
+    else:
+        keyboard.append([InlineKeyboardButton("🏠 Main menu", callback_data="home")])
+    text = (
+        "<b>⚡ Quick settings</b>\n\n"
+        "Choose a preset to quickly replace the message-type selection. "
+        "You can fine-tune each type from the main settings screen.\n\n"
+        f"<b>Currently included:</b> {', '.join(selected_types) or 'None'}"
+    )
     return text, InlineKeyboardMarkup(keyboard)
 
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 from config import temp
 from forward_review import format_forwarding_settings
 from plugins.forwarding import review_forwarding_task
-from plugins.settings import size_filter_dashboard, time_gap_dashboard
+from plugins.settings import quick_settings_dashboard, size_filter_dashboard, time_gap_dashboard
 from plugins.utils import STS
 
 
@@ -37,6 +37,34 @@ class ForwardReviewTests(unittest.TestCase):
         )
         self.assertIn("&lt;b&gt;unsafe&lt;/b&gt;", text)
         self.assertNotIn("<b>unsafe</b>", text)
+
+    def test_quick_presets_are_grouped_in_their_own_menu(self):
+        text, markup = quick_settings_dashboard(
+            {
+                "filters": {
+                    "text": False,
+                    "document": False,
+                    "video": True,
+                    "photo": True,
+                    "audio": True,
+                    "video_note": False,
+                }
+            },
+            "321-654",
+        )
+        callbacks = [
+            button.callback_data
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+
+        self.assertIn("Quick settings", text)
+        self.assertIn("Videos, Photos, Audio", text)
+        self.assertIn("settings#filterpreset:all", callbacks)
+        self.assertIn("settings#filterpreset:media", callbacks)
+        self.assertIn("settings#filterpreset:video_photo_audio", callbacks)
+        self.assertIn("continue_public_321-654", callbacks)
 
     def test_size_and_time_gap_settings_are_grouped_in_submenus(self):
         size_text, size_markup = size_filter_dashboard(
@@ -114,6 +142,8 @@ class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("settings#updatefilter-text-False", callback_data)
         self.assertIn("settings#size_filter", callback_data)
         self.assertIn("settings#time_gap", callback_data)
+        self.assertIn("settings#quick_settings", callback_data)
+        self.assertFalse(any(item.startswith("settings#filterpreset:") for item in callback_data))
         self.assertFalse(any(
             item.startswith("settings#update_size:")
             or item.startswith("settings#maxupdate_size:")
