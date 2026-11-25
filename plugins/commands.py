@@ -135,15 +135,19 @@ async def quick_forward(client, query):
             "Open the bot in a private chat to start forwarding.", show_alert=True
         )
     await query.answer()
-    # Reuse the exact same setup flow as /forward while retaining the clicker's
-    # identity (the callback's Message.from_user would otherwise be the bot).
+    # Replace the home menu immediately so repeated taps cannot start duplicate
+    # setup flows while the user is choosing a source or destination.
+    await query.message.edit_text("<b>Preparing forwarding setup…</b>")
+    # Reuse the /forward flow while retaining the clicker's identity (the
+    # callback Message.from_user would otherwise be the bot). Route its menu
+    # responses back into this same message instead of creating duplicates.
     from .public import begin_forward
 
     context = SimpleNamespace(
         from_user=query.from_user,
         chat=query.message.chat,
-        reply=query.message.reply,
-        reply_text=query.message.reply_text,
+        reply=query.message.edit_text,
+        reply_text=query.message.edit_text,
     )
     await begin_forward(client, context)
 

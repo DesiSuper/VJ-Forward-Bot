@@ -2,6 +2,7 @@
 import logging
 import re
 from html import escape
+from types import SimpleNamespace
 
 from pyrogram import Client, enums, filters
 from pyrogram.errors.exceptions.bad_request_400 import (
@@ -43,9 +44,10 @@ async def choose_destination(bot, query):
     if destination is None:
         return await query.answer("That destination is no longer available.", show_alert=True)
     await query.answer()
+    await query.message.edit_text("<b>Destination selected. Preparing source selection…</b>")
     return await begin_forward(
         bot,
-        query.message,
+        _editing_message_context(query),
         user_id=user_id,
         selected_destination=(destination["chat_id"], destination["title"]),
     )
@@ -61,9 +63,13 @@ async def choose_source(bot, query):
     if destination is None or source is None:
         return await query.answer("That saved chat is no longer available.", show_alert=True)
     await query.answer()
+    await query.message.edit_text(
+        f"<b>Source selected:</b> {escape(str(source.get('title') or 'Saved channel'))}\n"
+        "Preparing forwarding setup…"
+    )
     return await begin_forward(
         bot,
-        query.message,
+        _editing_message_context(query),
         user_id=user_id,
         selected_destination=(destination["chat_id"], destination["title"]),
         selected_source=source,
@@ -80,9 +86,10 @@ async def add_source(bot, query):
     if destination is None:
         return await query.answer("That destination is no longer available.", show_alert=True)
     await query.answer()
+    await query.message.edit_text("<b>Waiting for the new source channel…</b>")
     return await begin_forward(
         bot,
-        query.message,
+        _editing_message_context(query),
         user_id=user_id,
         selected_destination=(destination["chat_id"], destination["title"]),
         save_new_source=mode == "save",
@@ -133,6 +140,15 @@ async def remove_source(bot, query):
     await db.update_configs(user_id, {**configs, "sources": sources})
     await query.answer("Saved source removed.")
     return await show_source_manager(query.message, user_id, destination)
+
+
+def _editing_message_context(query):
+    return SimpleNamespace(
+        from_user=query.from_user,
+        chat=query.message.chat,
+        reply=query.message.edit_text,
+        reply_text=query.message.edit_text,
+    )
 
 
 async def _get_destination(user_id, destination_id):

@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from plugins.commands import dashboard_text, help_page, home_keyboard
+from plugins.commands import dashboard_text, help_page, home_keyboard, quick_forward
 
 
 class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
@@ -39,6 +39,29 @@ class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Destination One", text)
         self.assertIn("Saved Source", text)
         self.assertNotIn("secret-token", text)
+
+    async def test_start_forwarding_replaces_home_message_to_prevent_repeated_taps(self):
+        user = SimpleNamespace(id=333, first_name="User")
+        message = SimpleNamespace(
+            chat=SimpleNamespace(id=333),
+            edit_text=AsyncMock(),
+        )
+        query = SimpleNamespace(
+            from_user=user,
+            message=message,
+            answer=AsyncMock(),
+        )
+        begin_forward = AsyncMock()
+
+        with patch("plugins.public.begin_forward", new=begin_forward):
+            await quick_forward(object(), query)
+
+        message.edit_text.assert_awaited_once_with("<b>Preparing forwarding setup…</b>")
+        begin_forward.assert_awaited_once()
+        context = begin_forward.await_args.args[1]
+        self.assertEqual(context.from_user, user)
+        self.assertEqual(context.chat, message.chat)
+        self.assertIs(context.reply_text, message.edit_text)
 
     async def test_help_page_only_shows_home_navigation(self):
         query = SimpleNamespace(
