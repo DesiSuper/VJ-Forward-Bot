@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import psutil
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
 
 from .ui import InlineKeyboardButton
 
@@ -102,7 +102,7 @@ async def start(client, message):
         chat_id=message.chat.id,
         text=home_text(user.first_name),
         reply_markup=home_keyboard(),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
 
@@ -111,7 +111,7 @@ async def user_status(client, message):
     await message.reply_text(
         await dashboard_text(message.from_user.id),
         reply_markup=home_keyboard(),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
 
@@ -150,7 +150,7 @@ async def home(client, query):
     await query.message.edit_text(
         home_text(query.from_user.first_name),
         reply_markup=home_keyboard(),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
 
@@ -165,7 +165,7 @@ async def dashboard(client, query):
                 [InlineKeyboardButton("🏠 Main menu", callback_data="home")],
             ]
         ),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
 
@@ -183,7 +183,7 @@ async def help_page(client, query):
                 ],
             ]
         ),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
 
@@ -195,7 +195,7 @@ async def how_to_use(client, query):
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("🏠 Main menu", callback_data="home")]]
         ),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
 
@@ -210,7 +210,7 @@ async def about(client, query):
                 [InlineKeyboardButton("🏠 Main menu", callback_data="home")],
             ]
         ),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
 
@@ -228,7 +228,7 @@ async def status(client, query):
                 [InlineKeyboardButton("🏠 Main menu", callback_data="home")],
             ]
         ),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
 
@@ -254,7 +254,7 @@ async def sys_status(client, query):
                 [InlineKeyboardButton("🏠 Main menu", callback_data="home")],
             ]
         ),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 
 

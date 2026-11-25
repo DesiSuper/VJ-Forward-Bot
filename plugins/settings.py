@@ -2,7 +2,7 @@
 import asyncio
 
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
 
 from .ui import InlineKeyboardButton
 
@@ -358,7 +358,7 @@ async def settings_query(bot, query):
 
   elif type=="addurl":
      await query.message.delete()
-     uri = await bot.ask(user_id, "<b>Send your MongoDB connection URI.</b>\n\nThe URI is stored in your bot settings. Send <code>/cancel</code> to stop.", disable_web_page_preview=True)
+     uri = await bot.ask(user_id, "<b>Send your MongoDB connection URI.</b>\n\nThe URI is stored in your bot settings. Send <code>/cancel</code> to stop.", link_preview_options=LinkPreviewOptions(is_disabled=True))
      if uri.text=="/cancel":
         return await uri.reply_text(
                   "<b>Setup cancelled.</b>",

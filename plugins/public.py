@@ -11,7 +11,7 @@ from pyrogram.errors.exceptions.bad_request_400 import (
     UsernameNotModified,
 )
 from pyrogram.errors.exceptions.not_acceptable_406 import ChannelPrivate as PrivateChat
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
 
 from database import db
 from messages import Script
@@ -153,7 +153,7 @@ async def begin_forward(bot, message, user_id=None, selected_destination=None):
             to_chat=escape(str(to_title)),
             skip=escape(str(skip_count)),
         ),
-        disable_web_page_preview=True,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
         reply_markup=reply_markup
     )
     STS(forward_id).store(chat_id, toid, skip_count, int(last_msg_id))
