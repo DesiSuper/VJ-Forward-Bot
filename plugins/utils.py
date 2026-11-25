@@ -33,7 +33,14 @@ class STS:
     def verify(self):
         return self.data.get(self.id)
 
-    def store(self, source: int | str, target: int | str, skip: int, limit: int):
+    def store(
+        self,
+        source: int | str,
+        target: int | str,
+        skip: int,
+        limit: int,
+        review: dict[str, str] | None = None,
+    ):
         self.data[self.id] = {
             "FROM": source,
             "TO": target,
@@ -48,6 +55,7 @@ class STS:
             "duplicate": 0,
             "total": limit,
             "start": 0,
+            "review": review or {},
         }
         self.get(full=True)
         return STS(self.id)

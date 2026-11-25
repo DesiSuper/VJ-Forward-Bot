@@ -126,6 +126,10 @@ class PromptTests(unittest.IsolatedAsyncioTestCase):
                     "⚙️ Settings": "__settings__",
                     "❌ Cancel": "__cancel__",
                 },
+                callback_choice_rows=[
+                    ["🚀 Start (skip 0)", "⚙️ Settings"],
+                    ["❌ Cancel"],
+                ],
                 return_prompt=True,
                 defer_callback_answer=True,
                 timeout=2,
@@ -133,9 +137,10 @@ class PromptTests(unittest.IsolatedAsyncioTestCase):
         )
         await client.message_sent.wait()
         buttons = client.sent[0]["reply_markup"].inline_keyboard
+        self.assertEqual(len(buttons[0]), 2)
         self.assertIs(buttons[0][0].style, ButtonStyle.SUCCESS)
-        self.assertIs(buttons[1][0].style, ButtonStyle.PRIMARY)
-        self.assertIs(buttons[2][0].style, ButtonStyle.DANGER)
+        self.assertIs(buttons[0][1].style, ButtonStyle.PRIMARY)
+        self.assertIs(buttons[1][0].style, ButtonStyle.DANGER)
         prompt_message = SimpleNamespace(id=1)
         callback_handler, _ = client.handlers[1]
         answer = AsyncMock()

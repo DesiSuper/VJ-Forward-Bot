@@ -78,10 +78,12 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Saved source", prompt.await_args.args[2])
         self.assertIn("Message types:", prompt.await_args.args[2])
         self.assertEqual(prompt.await_args.kwargs["callback_choices"]["🚀 Start (skip 0)"], "0")
+        self.assertEqual(prompt.await_args.kwargs["callback_choice_rows"][0], ["🚀 Start (skip 0)", "⚙️ Settings"])
         task = STS(forward_id)
         self.assertTrue(task.verify())
         self.assertEqual(task.get("FROM"), -100222)
         self.assertEqual(task.get("limit"), 987)
+        self.assertEqual(task.get("review")["from_chat"], "Saved source")
         task.data.pop(forward_id, None)
 
     async def test_start_skip_zero_button_starts_without_a_review_step(self):
@@ -294,7 +296,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(STS(forward_id).get("limit"), 987)
         setup_message.delete.assert_awaited_once()
         confirmation_reply.assert_not_awaited()
-        self.assertIn("Review forwarding task", skip_prompt.edit_text.await_args.args[0])
+        self.assertIn("Forwarding setup", skip_prompt.edit_text.await_args.args[0])
         callbacks = [
             button.callback_data
             for row in skip_prompt.edit_text.await_args.kwargs["reply_markup"].inline_keyboard

@@ -94,3 +94,30 @@ def format_forwarding_settings(config: dict[str, Any]) -> str:
         "<b>Custom message buttons:</b> Unavailable\n"
         f"<b>Random delay:</b> {gap_text}"
     )
+
+
+def format_task_setup_preview(
+    review: dict[str, Any],
+    config: dict[str, Any],
+    skip: int,
+    *,
+    awaiting_skip: bool = False,
+) -> str:
+    """Summarize the task and effective filters in the skip/review message."""
+    skip_line = (
+        "enter a number (default: <code>0</code>)"
+        if awaiting_skip
+        else f"<code>{int(skip)}</code>"
+    )
+    text = (
+        "<b>Forwarding setup</b>\n\n"
+        f"<b>Account:</b> {escape(str(review.get('botname') or 'Connected account'))} "
+        f"(@{escape(str(review.get('botuname') or 'no username'))})\n"
+        f"<b>Source:</b> {escape(str(review.get('from_chat') or 'Unknown'))}\n"
+        f"<b>Destination:</b> {escape(str(review.get('to_chat') or 'Unknown'))}\n\n"
+        f"{format_forwarding_settings(config)}\n\n"
+        f"<b>Messages to skip:</b> {skip_line}"
+    )
+    if awaiting_skip:
+        text += "\nType a number, or tap <b>Start (skip 0)</b> to start now."
+    return text

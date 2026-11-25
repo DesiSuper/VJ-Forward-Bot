@@ -16,7 +16,7 @@ from pyrogram.errors.exceptions.not_acceptable_406 import ChannelPrivate as Priv
 from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
 
 from database import db
-from forward_review import format_forwarding_settings
+from forward_review import format_task_setup_preview
 from messages import Script
 
 from .ui import InlineKeyboardButton
@@ -428,14 +428,11 @@ async def begin_forward(
         "from_chat": str(title),
         "to_chat": str(to_title),
     }
-    skip_prompt_text = (
-        "<b>Forwarding setup</b>\n\n"
-        f"<b>Account:</b> {escape(review_data['botname'])} (@{escape(review_data['botuname'])})\n"
-        f"<b>Source:</b> {escape(review_data['from_chat'])}\n"
-        f"<b>Destination:</b> {escape(review_data['to_chat'])}\n\n"
-        f"{format_forwarding_settings(user_config)}\n\n"
-        "<b>Messages to skip:</b> enter a number (default: <code>0</code>).\n"
-        "Tap <b>Start (skip 0)</b> to start now, or open Settings."
+    skip_prompt_text = format_task_setup_preview(
+        review_data,
+        user_config,
+        0,
+        awaiting_skip=True,
     )
     try:
         skipno, skip_prompt = await prompt_for_input(
@@ -449,6 +446,10 @@ async def begin_forward(
                 "⚙️ Settings": "__settings__",
                 "❌ Cancel": "__cancel__",
             },
+            callback_choice_rows=[
+                ["🚀 Start (skip 0)", "⚙️ Settings"],
+                ["❌ Cancel"],
+            ],
             return_prompt=True,
             defer_callback_answer=True,
         )
@@ -488,6 +489,7 @@ async def begin_forward(
         toid,
         skip_count,
         int(last_msg_id),
+        review=review_data,
     )
     reply_markup = InlineKeyboardMarkup(
         [
@@ -498,13 +500,7 @@ async def begin_forward(
             [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_public_{forward_id}")],
         ]
     )
-    confirmation_text = Script.DOUBLE_CHECK.format(
-        botname=escape(review_data["botname"]),
-        botuname=escape(review_data["botuname"]),
-        from_chat=escape(review_data["from_chat"]),
-        to_chat=escape(review_data["to_chat"]),
-        skip=escape(str(skip_count)),
-    )
+    confirmation_text = format_task_setup_preview(review_data, user_config, skip_count)
 
     await _clear_setup_menu(message, user_id)
 

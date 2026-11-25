@@ -98,6 +98,7 @@ async def ask(
     timeout: float | None = None,
     delete_prompt_and_reply: bool = False,
     callback_choices: dict[str, str] | None = None,
+    callback_choice_rows: list[list[str]] | None = None,
     return_prompt: bool = False,
     defer_callback_answer: bool = False,
     **send_options: Any,
@@ -120,10 +121,18 @@ async def ask(
             f"prompt_choice#{token}#{index}": value
             for index, value in enumerate(callback_choices.values())
         }
+        callback_data_by_label = dict(zip(callback_choices, callback_values))
+        button_rows = callback_choice_rows or [[label] for label in callback_choices]
+        row_labels = [label for row in button_rows for label in row]
+        if len(row_labels) != len(callback_choices) or set(row_labels) != set(callback_choices):
+            raise ValueError("callback_choice_rows must include every callback choice exactly once")
         send_options["reply_markup"] = InlineKeyboardMarkup(
             [
-                [InlineKeyboardButton(label, callback_data=callback_data)]
-                for label, callback_data in zip(callback_choices, callback_values)
+                [
+                    InlineKeyboardButton(label, callback_data=callback_data_by_label[label])
+                    for label in row
+                ]
+                for row in button_rows
             ]
         )
     pending = _PendingPrompt(
