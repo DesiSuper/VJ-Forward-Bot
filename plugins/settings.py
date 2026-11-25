@@ -876,9 +876,7 @@ def quick_settings_dashboard(config, continue_task_id=None):
         for name, label, _ in preset_options
     ]
     keyboard.append([InlineKeyboardButton("⬅️ Back to all settings", callback_data="settings#main")])
-    if continue_task_id:
-        append_task_controls(keyboard, continue_task_id)
-    else:
+    if not continue_task_id:
         keyboard.append([InlineKeyboardButton("🏠 Main menu", callback_data="home")])
     text = (
         "<b>⚡ Quick settings</b>\n\n"
@@ -905,9 +903,7 @@ def size_filter_dashboard(config, continue_task_id=None):
         ],
         [InlineKeyboardButton("⬅️ Back to all settings", callback_data="settings#main")],
     ]
-    if continue_task_id:
-        append_task_controls(keyboard, continue_task_id)
-    else:
+    if not continue_task_id:
         keyboard.append([InlineKeyboardButton("🏠 Main menu", callback_data="home")])
     text = (
         "<b>📦 Size filter</b>\n\n"
@@ -940,9 +936,7 @@ def time_gap_dashboard(config, continue_task_id=None):
         [InlineKeyboardButton("✎ Custom delay", callback_data="settings#custom_gap")],
         [InlineKeyboardButton("⬅️ Back to all settings", callback_data="settings#main")],
     ]
-    if continue_task_id:
-        append_task_controls(keyboard, continue_task_id)
-    else:
+    if not continue_task_id:
         keyboard.append([InlineKeyboardButton("🏠 Main menu", callback_data="home")])
     if gap_min == gap_max == 0:
         current = "Off"
@@ -959,12 +953,9 @@ def time_gap_dashboard(config, continue_task_id=None):
 
 
 def append_task_controls(keyboard, task_id):
-    keyboard.extend(
-        [
-            [InlineKeyboardButton("↩️ Back to task review", callback_data=f"review_public_{task_id}")],
-            [InlineKeyboardButton("✅ Continue & start forwarding", callback_data=f"continue_public_{task_id}")],
-            [InlineKeyboardButton("❌ Cancel task setup", callback_data=f"cancel_public_{task_id}")],
-        ]
+    """Keep one exit to task review on the main settings screen only."""
+    keyboard.append(
+        [InlineKeyboardButton("↩️ Back to task review", callback_data=f"review_public_{task_id}")]
     )
 
 
