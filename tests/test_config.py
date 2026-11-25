@@ -1,0 +1,59 @@
+import os
+import unittest
+from unittest.mock import patch
+
+from config import Config, _integer
+
+
+class ConfigurationTests(unittest.TestCase):
+    def test_integer_reads_value_and_default(self):
+        with patch.dict(os.environ, {"TEST_INTEGER": "42"}, clear=False):
+            self.assertEqual(_integer("TEST_INTEGER"), 42)
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(_integer("MISSING_INTEGER", 7), 7)
+
+    def test_integer_reports_invalid_value_by_variable_name(self):
+        with patch.dict(os.environ, {"TEST_INTEGER": "not-a-number"}, clear=False):
+            with self.assertRaisesRegex(ValueError, "TEST_INTEGER"):
+                _integer("TEST_INTEGER")
+
+    def test_validate_reports_all_missing_values(self):
+        settings = {
+            "API_ID": 0,
+            "API_HASH": "",
+            "BOT_TOKEN": "",
+            "DATABASE_URI": "",
+            "BOT_OWNER": 0,
+        }
+        with patch.multiple(Config, **settings):
+            with self.assertRaises(RuntimeError) as error:
+                Config.validate()
+        for name in ("API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URI", "BOT_OWNER"):
+            self.assertIn(name, str(error.exception))
+
+    def test_validate_rejects_non_positive_api_id(self):
+        settings = {
+            "API_ID": -1,
+            "API_HASH": "hash",
+            "BOT_TOKEN": "token",
+            "DATABASE_URI": "mongodb://example",
+            "BOT_OWNER": 123456,
+        }
+        with patch.multiple(Config, **settings):
+            with self.assertRaisesRegex(RuntimeError, "API_ID must be a positive integer"):
+                Config.validate()
+
+    def test_validate_accepts_complete_configuration(self):
+        settings = {
+            "API_ID": 123,
+            "API_HASH": "hash",
+            "BOT_TOKEN": "token",
+            "DATABASE_URI": "mongodb://example",
+            "BOT_OWNER": 123456,
+        }
+        with patch.multiple(Config, **settings):
+            Config.validate()
+
+
+if __name__ == "__main__":
+    unittest.main()

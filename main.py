@@ -1,75 +1,75 @@
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+"""Process entry point for the Telegram forwarding bot."""
 
-import asyncio, logging
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import sys
+
+from pyrogram import Client, idle
+
 from config import Config
-from pyrogram import Client as VJ, idle
-from typing import Union, Optional, AsyncGenerator
-from logging.handlers import RotatingFileHandler
-from plugins.regix import restart_forwards
+from database import db
+from plugins.forwarding import restart_forwards
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+LOGGER = logging.getLogger("vj_forward_bot")
 
-if __name__ == "__main__":
-    VJBot = VJ(
-        "VJ-Forward-Bot",
+
+def configure_logging() -> None:
+    """Use consistent structured-enough logs on stdout for container hosts."""
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[logging.StreamHandler(sys.stdout)],
+        force=True,
+    )
+
+
+def create_bot() -> Client:
+    """Build the Telegram client after validating deployment configuration."""
+    Config.validate()
+    return Client(
+        Config.BOT_SESSION,
         bot_token=Config.BOT_TOKEN,
         api_id=Config.API_ID,
         api_hash=Config.API_HASH,
         sleep_threshold=120,
-        plugins=dict(root="plugins")
-    )  
-    async def iter_messages(
-        self,
-        chat_id: Union[int, str],
-        limit: int,
-        offset: int = 0,
-    ) -> Optional[AsyncGenerator["types.Message", None]]:
-        """Iterate through a chat sequentially.
-        This convenience method does the same as repeatedly calling :meth:`~pyrogram.Client.get_messages` in a loop, thus saving
-        you from the hassle of setting up boilerplate code. It is useful for getting the whole chat messages with a
-        single call.
-        Parameters:
-            chat_id (``int`` | ``str``):
-                Unique identifier (int) or username (str) of the target chat.
-                For your personal cloud (Saved Messages) you can simply use "me" or "self".
-                For a contact that exists in your Telegram address book you can use his phone number (str).
-                
-            limit (``int``):
-                Identifier of the last message to be returned.
-                
-            offset (``int``, *optional*):
-                Identifier of the first message to be returned.
-                Defaults to 0.
-        Returns:
-            ``Generator``: A generator yielding :obj:`~pyrogram.types.Message` objects.
-        Example:
-            .. code-block:: python
-                for message in app.iter_messages("pyrogram", 1, 15000):
-                    print(message.text)
-        """
-        current = offset
-        while True:
-            new_diff = min(200, limit - current)
-            if new_diff <= 0:
-                return
-            messages = await self.get_messages(chat_id, list(range(current, current+new_diff+1)))
-            for message in messages:
-                yield message
-                current += 1
-               
-    async def main():
-        await VJBot.start()
-        bot_info  = await VJBot.get_me()
-        await restart_forwards(VJBot)
-        print("Bot Started.")
+        plugins={"root": "plugins"},
+    )
+
+
+async def run() -> None:
+    client = create_bot()
+    started = False
+    try:
+        await db.connect()
+        await client.start()
+        started = True
+        bot_info = await client.get_me()
+        LOGGER.info("Bot started as @%s (id=%s)", bot_info.username, bot_info.id)
+
+        await restart_forwards(client)
+        LOGGER.info("Resumed pending forwarding jobs")
         await idle()
+    finally:
+        if started:
+            await client.stop()
+        await db.close()
+        LOGGER.info("Bot shutdown complete")
 
-    asyncio.get_event_loop().run_until_complete(main())
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+def main() -> None:
+    configure_logging()
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        LOGGER.info("Shutdown requested")
+    except Exception:
+        LOGGER.exception("Bot stopped because of an unrecoverable error")
+        raise
+
+
+if __name__ == "__main__":
+    main()

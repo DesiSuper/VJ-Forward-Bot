@@ -1,35 +1,28 @@
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
-import re, asyncio
-from database import Db, db
-from config import temp
-from .test import CLIENT, get_client
-from script import Script
 import base64
-from pyrogram.file_id import FileId
-from pyrogram import Client, filters, enums 
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import re
 import struct
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+from pyrogram import Client, enums, filters
+from pyrogram.file_id import FileId
+from pyrogram.types import InlineKeyboardMarkup
+
+from .ui import InlineKeyboardButton
+
+from config import temp
+from database import db
+from messages import Script
+
+from .clients import CLIENT, get_client
 
 CLIENT = CLIENT()
 COMPLETED_BTN = InlineKeyboardMarkup(
-  [[
-    InlineKeyboardButton('💟 sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ 💟', url='https://t.me/VJ_Bot_Disscussion')
-  ],[
-    InlineKeyboardButton('💠 ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ 💠', url='https://t.me/vj_botz')
-  ]]
+    [[InlineKeyboardButton("✅ Done · Close", callback_data="close_btn")]]
 )
-CANCEL_BTN = InlineKeyboardMarkup([[InlineKeyboardButton('• ᴄᴀɴᴄᴇʟ', 'terminate_frwd')]])
+CANCEL_BTN = InlineKeyboardMarkup(
+    [[InlineKeyboardButton("❌ Cancel cleanup", callback_data="cancel_unequify")]]
+)
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
 def encode_file_id(s: bytes) -> str:
     r = b""
@@ -47,9 +40,6 @@ def encode_file_id(s: bytes) -> str:
 
     return base64.urlsafe_b64encode(r).decode().rstrip("=")
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
 
 def unpack_new_file_id(new_file_id):
     """Return file_id"""
@@ -65,40 +55,41 @@ def unpack_new_file_id(new_file_id):
     )
     return file_id
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+
+@Client.on_callback_query(filters.regex(r"^cancel_unequify$"))
+async def cancel_unequify(client, query):
+   temp.CANCEL[query.from_user.id] = True
+   await query.answer("Cleanup will stop after the current batch.")
+
 
 @Client.on_message(filters.command("unequify") & filters.private)
 async def unequify(client, message):
    user_id = message.from_user.id
    temp.CANCEL[user_id] = False
    if temp.lock.get(user_id) and str(temp.lock.get(user_id))=="True":
-      return await message.reply("**please wait until previous task complete**")
+      return await message.reply("<b>A task is already running.</b> Wait for it to finish before starting duplicate cleanup.")
    _bot = await db.get_userbot(user_id)
    if not _bot:
-      return await message.reply("<b>Need userbot to do this process. Please add a userbot using /settings</b>")
-   target = await client.ask(user_id, text="**Forward the last message from target chat or send last message link.**\n/cancel - `cancel this process`")
+      return await message.reply("<b>A user account is required for duplicate cleanup.</b> Connect one in <code>/settings → Accounts</code>.")
+   target = await client.ask(user_id, text="<b>Choose a chat to scan</b>\nForward its latest message or send a link to that message.\nSend <code>/cancel</code> to stop.")
    if target.text and target.text.startswith("/"):
-      return await message.reply("**process cancelled !**")
+      return await message.reply("<b>Cleanup cancelled.</b>")
    elif target.text:
-      regex = re.compile("(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+      regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
       match = regex.match(target.text.replace("?single", ""))
       if not match:
-         return await message.reply('**Invalid link**')
+         return await message.reply('<b>That message link is invalid.</b> Please try again.')
       chat_id = match.group(4)
-      last_msg_id = int(match.group(5))
       if chat_id.isnumeric():
-         chat_id  = int(("-100" + chat_id))
+         chat_id  = int("-100" + chat_id)
    elif target.forward_from_chat.type in [enums.ChatType.CHANNEL, 'supergroup']:
-        last_msg_id = target.forward_from_message_id
         chat_id = target.forward_from_chat.username or target.forward_from_chat.id
    else:
-        return await message.reply_text("**invalid !**")
-   confirm = await client.ask(user_id, text="**send /yes to start the process and /no to cancel this process**")
+        return await message.reply_text("<b>Could not identify the chat.</b> Forward a message from it or send a message link.")
+   confirm = await client.ask(user_id, text="<b>Confirm duplicate cleanup</b>\nThis will delete duplicate documents from the selected chat. Send <code>/yes</code> to continue or <code>/no</code> to cancel.")
    if confirm.text.lower() == '/no':
-      return await confirm.reply("**process cancelled !**")
-   sts = await confirm.reply("`processing..`")
+      return await confirm.reply("<b>Cleanup cancelled.</b>")
+   sts = await confirm.reply("<b>Scanning for duplicate documents…</b>")
    il = False
    data = _bot['session']
    try:
@@ -110,7 +101,7 @@ async def unequify(client, message):
        k = await bot.send_message(chat_id, text="testing")
        await k.delete()
    except:
-       await sts.edit(f"**please make your [userbot](t.me/{_bot['username']}) admin in target chat with full permissions**")
+       await sts.edit("<b>Can't post to this chat.</b> Give the connected account permission to send and delete messages.")
        return await bot.stop()
    MESSAGES = []
    DUPLICATE = []
@@ -118,36 +109,34 @@ async def unequify(client, message):
    temp.lock[user_id] = True
    temp.CANCEL[user_id] = False
    try:
-     await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "ᴘʀᴏɢʀᴇssɪɴɢ"), reply_markup=CANCEL_BTN)
+     await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "Working"), reply_markup=CANCEL_BTN)
      async for message in bot.search_messages(chat_id=chat_id, filter=enums.MessagesFilter.DOCUMENT):
         if temp.CANCEL.get(user_id) == True:
-           await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "ᴄᴀɴᴄᴇʟʟᴇᴅ"), reply_markup=COMPLETED_BTN)
-           return await bot.stop()
+           temp.lock[user_id] = False
+           await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "Cancelled"), reply_markup=COMPLETED_BTN)
+           await bot.stop()
+           return
         file = message.document
-        file_id = unpack_new_file_id(file.file_id) 
+        file_id = unpack_new_file_id(file.file_id)
         if file_id in MESSAGES:
            DUPLICATE.append(message.id)
         else:
            MESSAGES.append(file_id)
         total += 1
         if total %1000 == 0:
-           await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "ᴘʀᴏɢʀᴇssɪɴɢ"), reply_markup=CANCEL_BTN)
+           await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "Working"), reply_markup=CANCEL_BTN)
         if len(DUPLICATE) >= 100:
            await bot.delete_messages(chat_id, DUPLICATE)
            deleted += 100
-           await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "ᴘʀᴏɢʀᴇssɪɴɢ"), reply_markup=CANCEL_BTN)
+           await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "Working"), reply_markup=CANCEL_BTN)
            DUPLICATE = []
      if DUPLICATE:
         await bot.delete_messages(chat_id, DUPLICATE)
         deleted += len(DUPLICATE)
    except Exception as e:
-       temp.lock[user_id] = False 
-       await sts.edit(f"**ERROR**\n`{e}`")
+       temp.lock[user_id] = False
+       await sts.edit(f"<b>Cleanup failed:</b>\n<code>{e}</code>")
        return await bot.stop()
    temp.lock[user_id] = False
-   await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "ᴄᴏᴍᴘʟᴇᴛᴇᴅ"), reply_markup=COMPLETED_BTN)
+   await sts.edit(Script.DUPLICATE_TEXT.format(total, deleted, "Complete"), reply_markup=COMPLETED_BTN)
    await bot.stop()
-
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01

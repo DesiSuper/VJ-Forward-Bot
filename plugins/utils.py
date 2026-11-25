@@ -1,68 +1,90 @@
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+"""Shared task state and per-user forwarding configuration helpers."""
 
-import time as tm
-from database import Db, db
-from .test import parse_buttons
+from __future__ import annotations
 
-STATUS = {}
+import time as clock
+from typing import Any
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+from database import db
+
+from .clients import parse_buttons
+
+STATUS: dict[str, dict[str, Any]] = {}
+
 
 class STS:
-    def __init__(self, id):
-        self.id = id
+    """In-memory progress state for a forwarding task."""
+
+    def __init__(self, task_id: str) -> None:
+        self.id = task_id
         self.data = STATUS
 
     def verify(self):
         return self.data.get(self.id)
 
-    def store(self, From, to,  skip, limit):
-        self.data[self.id] = {"FROM": From, 'TO': to, 'total_files': 0, 'skip': skip, 'limit': limit,
-                      'fetched': skip, 'filtered': 0, 'deleted': 0, 'duplicate': 0, 'total': limit, 'start': 0}
+    def store(self, source: int | str, target: int | str, skip: int, limit: int):
+        self.data[self.id] = {
+            "FROM": source,
+            "TO": target,
+            "total_files": 0,
+            "skip": skip,
+            "limit": limit,
+            "fetched": skip,
+            "filtered": 0,
+            "deleted": 0,
+            "duplicate": 0,
+            "total": limit,
+            "start": 0,
+        }
         self.get(full=True)
         return STS(self.id)
 
-    def get(self, value=None, full=False):
+    def get(self, value=None, full: bool = False):
         values = self.data.get(self.id)
         if not full:
-           return values.get(value)
-        for k, v in values.items():
-            setattr(self, k, v)
+            return values.get(value)
+        for key, item in values.items():
+            setattr(self, key, item)
         return self
 
-    def add(self, key=None, value=1, time=False, start_time=None):
+    def add(self, key=None, value: int = 1, time: bool = False, start_time=None):
         if time:
-          return self.data[self.id].update({'start': tm.time() if start_time is None else start_time})
-        self.data[self.id].update({key: self.get(key) + value}) 
+            timestamp = clock.time() if start_time is None else start_time
+            self.data[self.id].update({"start": timestamp})
+            return
+        self.data[self.id][key] = self.get(key) + value
 
-    def divide(self, no, by):
-       by = 1 if int(by) == 0 else by 
-       return int(no) / by 
+    @staticmethod
+    def divide(number: float, divisor: float) -> float:
+        return number / (divisor or 1)
 
-    async def get_data(self, user_id):
-        bot = await db.get_bot(user_id)
-        if bot is None:
-            bot = await db.get_userbot(user_id)
-        k, filters = self, await db.get_filters(user_id)
-        size, configs = None, await db.get_configs(user_id)
-        if configs['duplicate']:
-           duplicate = True
-        else:
-           duplicate = False
-        try:
-           min = configs['min_size']
-           max = configs['max_size']
-        except:
-           min = 0
-           max = 0
-        button = parse_buttons(configs['button'] if configs['button'] else '')
-        return bot, configs['caption'], configs['forward_tag'], {'filters': filters,
-                'keywords': configs['keywords'], 'min_size': min, 'max_size': max, 'extensions': configs['extension'], 'skip_duplicate': duplicate, 'db_uri': configs['db_uri']}, configs['protect'], button
+    async def get_data(self, user_id: int):
+        account = await db.get_bot(user_id)
+        if account is None:
+            account = await db.get_userbot(user_id)
 
-# Don't Remove Credit Tg - @VJ_Botz
-# Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
-# Ask Doubt on telegram @KingVJ01
+        configs = await db.get_configs(user_id)
+        disabled_filters = await db.get_filters(user_id)
+        button = parse_buttons(configs.get("button") or "")
+        random_gap = configs.get("random_gap") or {"min": 0, "max": 0}
+        if not isinstance(random_gap, dict):
+            random_gap = {"min": 0, "max": 0}
+
+        options = {
+            "filters": disabled_filters,
+            "keywords": configs.get("keywords"),
+            "min_size": int(configs.get("min_size") or 0),
+            "max_size": int(configs.get("max_size") or 0),
+            "extensions": configs.get("extension"),
+            "skip_duplicate": bool(configs.get("duplicate", True)),
+            "db_uri": configs.get("db_uri"),
+            "random_gap": random_gap,
+        }
+        return (
+            account,
+            configs.get("caption"),
+            bool(configs.get("forward_tag", False)),
+            options,
+            configs.get("protect"),
+            button,
+        )
