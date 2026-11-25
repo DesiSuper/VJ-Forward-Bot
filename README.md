@@ -45,12 +45,19 @@ pip install -r requirements.txt
 | `BOT_TOKEN` | हाँ | @BotFather से token |
 | `BOT_OWNER` | हाँ | Owner का numeric Telegram user ID (`BOT_OWNER_ID` alias भी स्वीकार है) |
 | `DATABASE_URI` | हाँ | MongoDB URI |
+| `CREDENTIAL_ENCRYPTION_KEY` | हाँ | Bot tokens, user sessions और custom Mongo URI के लिए Fernet key |
 | `DATABASE_NAME` | नहीं | Database नाम; default `forword-bot` |
 | `BOT_SESSION` | नहीं | Kurigram session name; default `forwordbot` |
 | `LOG_LEVEL` | नहीं | Python logging level; default `INFO` |
 | `PORT` | नहीं | Health service port; default `8000` |
 
-यदि पुराने deployment ने `DATABASE_NAME` explicitly set नहीं किया था, तो saved data बनाए रखने के लिए upgrade के बाद `DATABASE_NAME` में वही पुराना database name दें; नया default `forword-bot` है। `BOT_SESSION` बदलने पर session पुनः authorize हो सकता है।
+पहली बार key बनाने के लिए चलाएँ और परिणाम को deployment secret के रूप में सुरक्षित रखें:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+`CREDENTIAL_ENCRYPTION_KEY` को हर restart/deployment पर वही रखें और सुरक्षित backup लें; key खोने पर encrypted credentials decrypt नहीं होंगे। Startup पर पुराना plaintext token/session/URI data encrypted रूप में migrate होगा। यदि पुराने deployment ने `DATABASE_NAME` explicitly set नहीं किया था, तो saved data बनाए रखने के लिए upgrade के बाद `DATABASE_NAME` में वही पुराना database name दें; नया default `forword-bot` है। `BOT_SESSION` बदलने पर session पुनः authorize हो सकता है।
 
 फिर bot worker चलाएँ:
 
@@ -60,6 +67,7 @@ export API_HASH='...'
 export BOT_TOKEN='...'
 export BOT_OWNER=123456789
 export DATABASE_URI='mongodb+srv://...'
+export CREDENTIAL_ENCRYPTION_KEY='...'
 python -m main
 ```
 

@@ -1,11 +1,12 @@
 
 import logging
 import re
-from functools import partial
+from functools import partial, wraps
 from html import escape
 from types import SimpleNamespace
 
 from pyrogram import Client, enums, filters
+from pyrogram.errors import PeerIdInvalid
 from pyrogram.errors.exceptions.bad_request_400 import (
     ChannelInvalid,
     ChannelPrivate,
@@ -22,7 +23,7 @@ from messages import Script
 from .ui import InlineKeyboardButton
 from .utils import STS, get_forward_origin, get_forwarded_chat
 from .clients import get_client, update_configs
-from .prompts import ask as prompt_for_input
+from .prompts import InputPromptAlreadyActive, ask as prompt_for_input
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +262,24 @@ async def latest_source_message_id(user_id, chat_id):
             await client.stop()
 
 
+def handle_active_prompt(handler):
+    @wraps(handler)
+    async def wrapped(bot, message, *args, **kwargs):
+        try:
+            return await handler(bot, message, *args, **kwargs)
+        except InputPromptAlreadyActive:
+            user_id = getattr(getattr(message, "from_user", None), "id", None)
+            if user_id is None:
+                raise
+            return await bot.send_message(
+                user_id,
+                "<b>An input prompt is already active.</b> Reply to it or send <code>/cancel</code> before starting another forwarding setup.",
+            )
+
+    return wrapped
+
+
+@handle_active_prompt
 async def begin_forward(
     bot,
     message,
@@ -401,7 +420,7 @@ async def begin_forward(
             resolved_source = await bot.get_chat(chat_id)
             source_id = resolved_source.id
             title = resolved_source.title or str(source_id)
-        except (PrivateChat, ChannelPrivate, ChannelInvalid):
+        except (PrivateChat, ChannelPrivate, ChannelInvalid, PeerIdInvalid):
             source_id = source_chat.id if source_chat else chat_id
             title = source_chat.title if source_chat else str(source_id)
         except (UsernameInvalid, UsernameNotModified):

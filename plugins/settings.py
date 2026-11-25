@@ -1,6 +1,7 @@
 
 import asyncio
 import logging
+from functools import wraps
 from string import Formatter
 from html import escape
 from urllib.parse import urlsplit
@@ -36,6 +37,11 @@ def validate_caption_template(template: str) -> None:
     template.format(filename="", size="", caption="")
 
 
+def valid_size_range(minimum: int, maximum: int) -> bool:
+    """Zero disables a bound; active minimums must not exceed maximums."""
+    return minimum <= 0 or maximum <= 0 or minimum <= maximum
+
+
 def mongo_uri_summary(uri: str | None) -> str:
     """Show the host/path without credentials or query-string secrets."""
     try:
@@ -49,6 +55,20 @@ def mongo_uri_summary(uri: str | None) -> str:
     return f"{scheme}://{address}{parsed_uri.path}"
 
 
+def handle_active_prompt(handler):
+    @wraps(handler)
+    async def wrapped(bot, query):
+        try:
+            return await handler(bot, query)
+        except InputPromptAlreadyActive:
+            return await bot.send_message(
+                query.from_user.id,
+                "<b>An input prompt is already active.</b> Reply to it or send <code>/cancel</code> before starting another.",
+            )
+
+    return wrapped
+
+
 @Client.on_message(filters.private & filters.command('settings'))
 async def settings(client, message):
    task_id = PENDING_REVIEW.get(message.from_user.id)
@@ -57,6 +77,7 @@ async def settings(client, message):
 
 
 @Client.on_callback_query(filters.regex(r'^settings'))
+@handle_active_prompt
 async def settings_query(bot, query):
   user_id = query.from_user.id
   i, type = query.data.split("#")
@@ -90,7 +111,6 @@ async def settings_query(bot, query):
 
   elif type == "custom_gap":
      await query.answer()
-     await query.message.delete()
      answer = await prompt_for_input(
          bot,
          user_id,
@@ -175,7 +195,6 @@ async def settings_query(bot, query):
 
   elif type=="adduserbot":
      await query.answer()
-     await query.message.delete()
      connected = await CLIENT.add_session(bot, query)
      if connected is not True:
         return
@@ -241,7 +260,6 @@ async def settings_query(bot, query):
 
   elif type == "addsource":
      await query.answer()
-     await query.message.delete()
      try:
          source_message = await prompt_for_input(
              bot,
@@ -318,7 +336,6 @@ async def settings_query(bot, query):
 
   elif type=="addchannel":
      await query.answer()
-     await query.message.delete()
      try:
          chat_ids = await prompt_for_input(bot,
              chat_id=user_id,
@@ -406,7 +423,6 @@ async def settings_query(bot, query):
      if current is None:
         return await query.answer("That destination is no longer saved.", show_alert=True)
      await query.answer()
-     await query.message.delete()
      try:
         forwarded = await prompt_for_input(
             bot,
@@ -508,7 +524,6 @@ async def settings_query(bot, query):
         reply_markup=InlineKeyboardMarkup(buttons))
 
   elif type=="addcaption":
-     await query.message.delete()
      caption = await prompt_for_input(bot, query.message.chat.id, "<b>Send your caption template.</b>\nUse <code>{filename}</code>, <code>{size}</code>, or <code>{caption}</code> as needed.\nSend <code>/cancel</code> to stop.")
      template = getattr(caption, "text", None)
      if not template:
@@ -552,13 +567,19 @@ async def settings_query(bot, query):
         reply_markup=InlineKeyboardMarkup(buttons))
 
   elif type=="addurl":
-     await query.message.delete()
-     uri = await prompt_for_input(bot, user_id, "<b>Send your MongoDB connection URI.</b>\n\nThe URI is stored in your bot settings. Send <code>/cancel</code> to stop.", link_preview_options=LinkPreviewOptions(is_disabled=True))
+     uri = await prompt_for_input(
+         bot,
+         user_id,
+         "<b>Send your MongoDB connection URI.</b>\n\nThe URI is stored encrypted in your bot settings. Send <code>/cancel</code> to stop.",
+         link_preview_options=LinkPreviewOptions(is_disabled=True),
+         delete_prompt_and_reply=True,
+     )
      uri_text = getattr(uri, "text", None)
      if not uri_text:
-        return await uri.reply("<b>Please send a MongoDB URI as text.</b>", reply_markup=InlineKeyboardMarkup(buttons))
+        return await bot.send_message(user_id, "<b>Please send a MongoDB URI as text.</b>", reply_markup=InlineKeyboardMarkup(buttons))
      if uri_text.strip().lower() == "/cancel":
-        return await uri.reply_text(
+        return await bot.send_message(
+                  user_id,
                   "<b>Setup cancelled.</b>",
                   reply_markup=InlineKeyboardMarkup(buttons))
      try:
@@ -571,17 +592,26 @@ async def settings_query(bot, query):
      except ValueError:
         valid_uri = False
      if not valid_uri:
-        return await uri.reply("<b>Invalid MongoDB URI.</b> Use a valid <code>mongodb://</code> or <code>mongodb+srv://</code> URI.",
-                   reply_markup=InlineKeyboardMarkup(buttons))
+        return await bot.send_message(
+            user_id,
+            "<b>Invalid MongoDB URI.</b> Use a valid <code>mongodb://</code> or <code>mongodb+srv://</code> URI.",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
      connect, udb = await connect_user_db(user_id, uri_text.strip(), "test")
      if connect:
         await udb.close()
      else:
-        return await uri.reply("<b>Could not connect to MongoDB.</b> Check the URI and network permissions.",
-                  reply_markup=InlineKeyboardMarkup(buttons))
-     await update_configs(user_id, 'db_uri', uri.text)
-     await uri.reply("<b>✓ Database connected.</b>",
-             reply_markup=InlineKeyboardMarkup(buttons))
+        return await bot.send_message(
+            user_id,
+            "<b>Could not connect to MongoDB.</b> Check the URI and network permissions.",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+     await update_configs(user_id, 'db_uri', uri_text.strip())
+     await bot.send_message(
+         user_id,
+         "<b>✓ Database connected.</b>",
+         reply_markup=InlineKeyboardMarkup(buttons),
+     )
 
   elif type=="seeurl":
      db_uri = (await get_configs(user_id))['db_uri']
@@ -595,10 +625,6 @@ async def settings_query(bot, query):
      await query.message.edit_text(
         "<b>✓ Database URI removed.</b>",
         reply_markup=InlineKeyboardMarkup(buttons))
-
-  elif type in {"filters", "filter_presets", "nextfilters"}:
-     text, markup = await settings_dashboard(user_id, PENDING_REVIEW.get(user_id))
-     return await query.message.edit_text(text, reply_markup=markup)
 
   elif type.startswith("filterpreset:"):
      preset = type.split(":", 1)[1]
@@ -626,6 +652,9 @@ async def settings_query(bot, query):
     size = int(type.split(":", 1)[1])
     if not 0 <= size <= 4000:
       return await query.answer("Choose a size from 0 to 4000 MB.", show_alert=True)
+    config = await get_configs(user_id)
+    if not valid_size_range(size, int(config.get("max_size") or 0)):
+      return await query.answer("Minimum size cannot exceed the current maximum size.", show_alert=True)
     await update_configs(user_id, "min_size", size)
     config = await get_configs(user_id)
     text, markup = size_filter_dashboard(config, PENDING_REVIEW.get(user_id))
@@ -635,13 +664,15 @@ async def settings_query(bot, query):
     size = int(type.split(":", 1)[1])
     if not 0 <= size <= 4000:
       return await query.answer("Choose a size from 0 to 4000 MB.", show_alert=True)
+    config = await get_configs(user_id)
+    if not valid_size_range(int(config.get("min_size") or 0), size):
+      return await query.answer("Maximum size cannot be below the current minimum size.", show_alert=True)
     await update_configs(user_id, "max_size", size)
     config = await get_configs(user_id)
     text, markup = size_filter_dashboard(config, PENDING_REVIEW.get(user_id))
     return await query.message.edit_text(text, reply_markup=markup)
 
   elif type == "add_extension":
-    await query.message.delete()
     ext = await prompt_for_input(bot, user_id, text="<b>Enter file extensions separated by spaces.</b>\nExample: <code>mkv zip pdf</code>\nSend <code>/cancel</code> to stop.")
     if ext.text == '/cancel':
        return await ext.reply_text(
@@ -687,7 +718,6 @@ async def settings_query(bot, query):
     await query.message.edit_text(text="<b>✓ List cleared.</b>",
                                    reply_markup=InlineKeyboardMarkup(buttons))
   elif type == "add_keyword":
-    await query.message.delete()
     ask = await prompt_for_input(bot, user_id, text="<b>Enter keywords separated by spaces.</b>\nFiles whose names contain these words will be skipped.\nSend <code>/cancel</code> to stop.")
     if ask.text == '/cancel':
        return await ask.reply_text(

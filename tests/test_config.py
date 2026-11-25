@@ -2,7 +2,11 @@ import os
 import unittest
 from unittest.mock import patch
 
+from cryptography.fernet import Fernet
+
 from config import Config, _integer
+
+ENCRYPTION_KEY = Fernet.generate_key().decode()
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -23,12 +27,13 @@ class ConfigurationTests(unittest.TestCase):
             "API_HASH": "",
             "BOT_TOKEN": "",
             "DATABASE_URI": "",
+            "CREDENTIAL_ENCRYPTION_KEY": "",
             "BOT_OWNER": 0,
         }
         with patch.multiple(Config, **settings):
             with self.assertRaises(RuntimeError) as error:
                 Config.validate()
-        for name in ("API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URI", "BOT_OWNER"):
+        for name in ("API_ID", "API_HASH", "BOT_TOKEN", "DATABASE_URI", "CREDENTIAL_ENCRYPTION_KEY", "BOT_OWNER"):
             self.assertIn(name, str(error.exception))
 
     def test_validate_rejects_non_positive_api_id(self):
@@ -37,10 +42,24 @@ class ConfigurationTests(unittest.TestCase):
             "API_HASH": "hash",
             "BOT_TOKEN": "token",
             "DATABASE_URI": "mongodb://example",
+            "CREDENTIAL_ENCRYPTION_KEY": ENCRYPTION_KEY,
             "BOT_OWNER": 123456,
         }
         with patch.multiple(Config, **settings):
             with self.assertRaisesRegex(RuntimeError, "API_ID must be a positive integer"):
+                Config.validate()
+
+    def test_validate_rejects_invalid_credential_encryption_key(self):
+        settings = {
+            "API_ID": 123,
+            "API_HASH": "hash",
+            "BOT_TOKEN": "token",
+            "DATABASE_URI": "mongodb://example",
+            "CREDENTIAL_ENCRYPTION_KEY": "not-a-fernet-key",
+            "BOT_OWNER": 123456,
+        }
+        with patch.multiple(Config, **settings):
+            with self.assertRaisesRegex(RuntimeError, "CREDENTIAL_ENCRYPTION_KEY"):
                 Config.validate()
 
     def test_validate_accepts_complete_configuration(self):
@@ -49,6 +68,7 @@ class ConfigurationTests(unittest.TestCase):
             "API_HASH": "hash",
             "BOT_TOKEN": "token",
             "DATABASE_URI": "mongodb://example",
+            "CREDENTIAL_ENCRYPTION_KEY": ENCRYPTION_KEY,
             "BOT_OWNER": 123456,
         }
         with patch.multiple(Config, **settings):

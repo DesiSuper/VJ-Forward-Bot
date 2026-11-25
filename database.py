@@ -8,6 +8,7 @@ from typing import Any
 import motor.motor_asyncio
 
 from config import Config
+from secret_store import decrypt_secret, encrypt_secret, is_encrypted
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "caption": None,
@@ -98,6 +99,29 @@ class Db:
         await self.userbot.create_index("user_id")
         await self.nfy.create_index("user_id")
         await self.chl.create_index([("user_id", 1), ("chat_id", 1)])
+        await self._encrypt_legacy_credentials()
+
+    async def _encrypt_legacy_credentials(self) -> None:
+        """Migrate legacy plaintext secrets without logging their values."""
+        for collection, field in ((self.bot, "token"), (self.userbot, "session")):
+            async for record in collection.find({field: {"$type": "string"}}):
+                value = record.get(field)
+                if not value or is_encrypted(value):
+                    continue
+                await collection.update_one(
+                    {"_id": record["_id"], field: value},
+                    {"$set": {field: encrypt_secret(value)}},
+                )
+
+        async for record in self.col.find({"configs.db_uri": {"$type": "string"}}):
+            configs = record.get("configs") or {}
+            value = configs.get("db_uri") if isinstance(configs, dict) else None
+            if not value or is_encrypted(value):
+                continue
+            await self.col.update_one(
+                {"_id": record["_id"], "configs.db_uri": value},
+                {"$set": {"configs.db_uri": encrypt_secret(value)}},
+            )
 
     async def close(self) -> None:
         if self._client is not None:
@@ -126,10 +150,6 @@ class Db:
     async def total_users_count(self) -> int:
         self._require_database()
         return await self.col.count_documents({})
-
-    async def total_users_bots_count(self) -> tuple[int, int]:
-        self._require_database()
-        return await self.total_users_count(), await self.bot.count_documents({})
 
     async def remove_ban(self, id: int) -> None:
         self._require_database()
@@ -165,8 +185,11 @@ class Db:
 
     async def update_configs(self, id: int, configs: dict[str, Any]) -> None:
         self._require_database()
+        stored_configs = deepcopy(configs)
+        if stored_configs.get("db_uri"):
+            stored_configs["db_uri"] = encrypt_secret(stored_configs["db_uri"])
         await self.col.update_one(
-            {"id": int(id)}, {"$set": {"configs": configs}}
+            {"id": int(id)}, {"$set": {"configs": stored_configs}}
         )
 
     async def get_configs(self, id: int) -> dict[str, Any]:
@@ -181,14 +204,19 @@ class Db:
                 configs["filters"].update(stored_filters)
         for disabled_type in ("voice", "animation", "sticker", "poll"):
             configs["filters"][disabled_type] = False
+        if configs.get("db_uri"):
+            configs["db_uri"] = decrypt_secret(configs["db_uri"])
         # Old custom button settings are deliberately ignored and removed.
         configs.pop("button", None)
         return configs
 
     async def add_bot(self, datas: dict[str, Any]) -> None:
         self._require_database()
+        stored = deepcopy(datas)
+        if stored.get("token"):
+            stored["token"] = encrypt_secret(stored["token"])
         await self.bot.update_one(
-            {"user_id": int(datas["user_id"])}, {"$set": datas}, upsert=True
+            {"user_id": int(stored["user_id"])}, {"$set": stored}, upsert=True
         )
 
     async def remove_bot(self, user_id: int) -> None:
@@ -197,15 +225,18 @@ class Db:
 
     async def get_bot(self, user_id: int) -> dict[str, Any] | None:
         self._require_database()
-        return await self.bot.find_one({"user_id": int(user_id)})
-
-    async def is_bot_exist(self, user_id: int) -> bool:
-        return await self.get_bot(user_id) is not None
+        account = await self.bot.find_one({"user_id": int(user_id)})
+        if account and account.get("token"):
+            account["token"] = decrypt_secret(account["token"])
+        return account
 
     async def add_userbot(self, datas: dict[str, Any]) -> None:
         self._require_database()
+        stored = deepcopy(datas)
+        if stored.get("session"):
+            stored["session"] = encrypt_secret(stored["session"])
         await self.userbot.update_one(
-            {"user_id": int(datas["user_id"])}, {"$set": datas}, upsert=True
+            {"user_id": int(stored["user_id"])}, {"$set": stored}, upsert=True
         )
 
     async def remove_userbot(self, user_id: int) -> None:
@@ -214,10 +245,10 @@ class Db:
 
     async def get_userbot(self, user_id: int) -> dict[str, Any] | None:
         self._require_database()
-        return await self.userbot.find_one({"user_id": int(user_id)})
-
-    async def is_userbot_exist(self, user_id: int) -> bool:
-        return await self.get_userbot(user_id) is not None
+        account = await self.userbot.find_one({"user_id": int(user_id)})
+        if account and account.get("session"):
+            account["session"] = decrypt_secret(account["session"])
+        return account
 
     async def in_channel(self, user_id: int, chat_id: int) -> bool:
         self._require_database()
@@ -286,10 +317,6 @@ class Db:
     async def get_all_frwd(self):
         self._require_database()
         return self.nfy.find({})
-
-    async def forwad_count(self) -> int:
-        self._require_database()
-        return await self.nfy.count_documents({})
 
     async def is_forwad_exit(self, user: int) -> bool:
         self._require_database()

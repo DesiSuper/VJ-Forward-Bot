@@ -28,6 +28,7 @@ class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
     BOT_SESSION = os.getenv("BOT_SESSION", "forwordbot").strip() or "forwordbot"
     DATABASE_URI = os.getenv("DATABASE_URI", "").strip()
+    CREDENTIAL_ENCRYPTION_KEY = os.getenv("CREDENTIAL_ENCRYPTION_KEY", "").strip()
     DATABASE_NAME = os.getenv("DATABASE_NAME", "forword-bot").strip() or "forword-bot"
     BOT_OWNER = _integer("BOT_OWNER", _integer("BOT_OWNER_ID"))
 
@@ -41,6 +42,7 @@ class Config:
                 ("API_HASH", cls.API_HASH),
                 ("BOT_TOKEN", cls.BOT_TOKEN),
                 ("DATABASE_URI", cls.DATABASE_URI),
+                ("CREDENTIAL_ENCRYPTION_KEY", cls.CREDENTIAL_ENCRYPTION_KEY),
                 ("BOT_OWNER (or BOT_OWNER_ID)", cls.BOT_OWNER),
             )
             if not value
@@ -52,6 +54,12 @@ class Config:
             raise RuntimeError("API_ID must be a positive integer")
         if cls.BOT_OWNER < 1:
             raise RuntimeError("BOT_OWNER must be a positive Telegram user ID")
+        from cryptography.fernet import Fernet
+
+        try:
+            Fernet(cls.CREDENTIAL_ENCRYPTION_KEY.encode("ascii"))
+        except (UnicodeEncodeError, ValueError) as error:
+            raise RuntimeError("CREDENTIAL_ENCRYPTION_KEY must be a valid Fernet key") from error
 
 
 class temp:

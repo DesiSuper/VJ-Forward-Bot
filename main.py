@@ -16,7 +16,7 @@ except ImportError:  # Optional on platforms without uvloop wheels.
 
 from config import Config
 from database import db
-from plugins.forwarding import restart_forwards
+from plugins.forwarding import cancel_pending_forwards, restart_forwards
 
 LOGGER = logging.getLogger("forword_bot")
 
@@ -56,9 +56,10 @@ async def run() -> None:
         LOGGER.info("Bot started as @%s (id=%s)", bot_info.username, bot_info.id)
 
         await restart_forwards(client)
-        LOGGER.info("Resumed pending forwarding jobs")
+        LOGGER.info("Scheduled pending forwarding jobs in the background")
         await idle()
     finally:
+        await cancel_pending_forwards()
         if started:
             await client.stop()
         await db.close()

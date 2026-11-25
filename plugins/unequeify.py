@@ -1,6 +1,7 @@
 
 import logging
 import re
+from functools import wraps
 from html import escape
 
 from pyrogram import Client, enums, filters
@@ -13,7 +14,7 @@ from database import db
 from messages import Script
 
 from .clients import CLIENT, get_client
-from .prompts import ask as prompt_for_input
+from .prompts import InputPromptAlreadyActive, ask as prompt_for_input
 from .utils import get_forwarded_chat
 
 CLIENT = CLIENT()
@@ -26,6 +27,18 @@ CANCEL_BTN = InlineKeyboardMarkup(
 )
 
 
+def handle_active_prompt(handler):
+   @wraps(handler)
+   async def wrapped(client, message, *args, **kwargs):
+      try:
+         return await handler(client, message, *args, **kwargs)
+      except InputPromptAlreadyActive:
+         return await message.reply(
+             "<b>An input prompt is already active.</b> Reply to it or send <code>/cancel</code> before starting duplicate cleanup."
+         )
+
+   return wrapped
+
 
 @Client.on_callback_query(filters.regex(r"^cancel_unequify$"))
 async def cancel_unequify(client, query):
@@ -34,6 +47,7 @@ async def cancel_unequify(client, query):
 
 
 @Client.on_message(filters.command("unequify") & filters.private)
+@handle_active_prompt
 async def unequify(client, message):
    user_id = message.from_user.id
    temp.CANCEL[user_id] = False
@@ -86,12 +100,6 @@ async def unequify(client, message):
       return await sts.edit(
           f"<b>Could not start the connected account:</b> <code>{escape(str(e))}</code>"
       )
-   try:
-       k = await bot.send_message(chat_id, text="testing")
-       await k.delete()
-   except Exception:
-       await sts.edit("<b>Can't post to this chat.</b> Give the connected account permission to send and delete messages.")
-       return await bot.stop()
    MESSAGES = set()
    DUPLICATE = []
    total=deleted=0
