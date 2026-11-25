@@ -409,7 +409,7 @@ async def return_to_task_review(bot, query):
     reply_markup = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("🚀 Start forwarding", callback_data=f"continue_public_{forward_id}"),
+                InlineKeyboardButton(f"🚀 Start (skip {task_data.skip})", callback_data=f"continue_public_{forward_id}"),
                 InlineKeyboardButton("⚙️ Settings", callback_data=f"start_public_{forward_id}"),
             ],
             [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_public_{forward_id}")],

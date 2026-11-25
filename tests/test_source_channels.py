@@ -296,7 +296,7 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(STS(forward_id).get("limit"), 987)
         setup_message.delete.assert_awaited_once()
         confirmation_reply.assert_not_awaited()
-        self.assertIn("Forwarding setup", skip_prompt.edit_text.await_args.args[0])
+        self.assertIn("Review forwarding task", skip_prompt.edit_text.await_args.args[0])
         callbacks = [
             button.callback_data
             for row in skip_prompt.edit_text.await_args.kwargs["reply_markup"].inline_keyboard

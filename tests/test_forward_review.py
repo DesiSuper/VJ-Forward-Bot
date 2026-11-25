@@ -211,11 +211,19 @@ class ReturnToTaskReviewTests(unittest.IsolatedAsyncioTestCase):
         query.answer.assert_awaited_once()
         self.assertNotIn(user_id, PENDING_REVIEW)
         text = message.edit_text.await_args.args[0]
+        self.assertIn("Review forwarding task", text)
+        self.assertNotIn("<b>Forwarding setup</b>", text)
         self.assertIn("Messages to skip:</b> <code>2</code>", text)
         self.assertIn("Message types:</b> Text, Photos", text)
         markup = message.edit_text.await_args.kwargs["reply_markup"]
         callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
+        button_labels = {
+            button.callback_data: button.text
+            for row in markup.inline_keyboard
+            for button in row
+        }
         self.assertIn(f"continue_public_{forward_id}", callbacks)
+        self.assertEqual(button_labels[f"continue_public_{forward_id}"], "🚀 Start (skip 2)")
         self.assertIn(f"start_public_{forward_id}", callbacks)
         self.assertIn(f"cancel_public_{forward_id}", callbacks)
         STS(forward_id).data.pop(forward_id, None)

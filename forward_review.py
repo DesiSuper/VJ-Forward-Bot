@@ -109,8 +109,9 @@ def format_task_setup_preview(
         if awaiting_skip
         else f"<code>{int(skip)}</code>"
     )
+    heading = "Forwarding setup" if awaiting_skip else "Review forwarding task"
     text = (
-        "<b>Forwarding setup</b>\n\n"
+        f"<b>{heading}</b>\n\n"
         f"<b>Account:</b> {escape(str(review.get('botname') or 'Connected account'))} "
         f"(@{escape(str(review.get('botuname') or 'no username'))})\n"
         f"<b>Source:</b> {escape(str(review.get('from_chat') or 'Unknown'))}\n"

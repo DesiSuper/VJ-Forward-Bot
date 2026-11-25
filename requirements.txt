@@ -5,6 +5,7 @@ kurigram[fast]==2.2.27
 # (including mongodb+srv:// URIs) as dependencies.
 motor>=3.7.1,<4.0
 cryptography>=42.0,<47.0
+yt-dlp>=2025.1.15,<2027
 
 # Runtime and health endpoint
 Flask>=3.0,<4.0

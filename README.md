@@ -14,6 +14,7 @@
 - Bot restart के बाद pending forwarding को resume करना
 - Settings, status और owner broadcast commands
 - Duplicate documents खोजने और साफ़ करने का विकल्प
+- सार्वजनिक Instagram post/reel URL भेजने पर media डाउनलोड करके Telegram में वापस भेजना (अधिकतम 45 MB; private posts/cookies समर्थित नहीं)
 - `/healthz` पर lightweight container health check
 - Inline menu से one-tap forwarding setup और व्यक्तिगत setup/task dashboard (`/status`)
 - Kurigram inline-button color styles: navigation/neutral (blue), success (green), और destructive/cancel (red); रंग Telegram client support पर निर्भर करते हैं
@@ -24,6 +25,7 @@
 
 - Python 3.11+
 - Kurigram 2.2.27 (Pyrogram-compatible API)
+- yt-dlp (public Instagram media extraction; installed via `requirements.txt`)
 - Telegram API credentials: [my.telegram.org](https://my.telegram.org)
 - Bot token: [@BotFather](https://t.me/BotFather)
 - MongoDB connection URI
