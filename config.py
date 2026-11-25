@@ -26,9 +26,9 @@ class Config:
     API_ID = _integer("API_ID")
     API_HASH = os.getenv("API_HASH", "").strip()
     BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-    BOT_SESSION = os.getenv("BOT_SESSION", "vjbot").strip() or "vjbot"
+    BOT_SESSION = os.getenv("BOT_SESSION", "forwordbot").strip() or "forwordbot"
     DATABASE_URI = os.getenv("DATABASE_URI", "").strip()
-    DATABASE_NAME = os.getenv("DATABASE_NAME", "vj-forward-bot").strip() or "vj-forward-bot"
+    DATABASE_NAME = os.getenv("DATABASE_NAME", "forword-bot").strip() or "forword-bot"
     BOT_OWNER = _integer("BOT_OWNER", _integer("BOT_OWNER_ID"))
 
     @classmethod

@@ -18,7 +18,7 @@ from config import Config
 from database import db
 from plugins.forwarding import restart_forwards
 
-LOGGER = logging.getLogger("vj_forward_bot")
+LOGGER = logging.getLogger("forword_bot")
 
 
 def configure_logging() -> None:

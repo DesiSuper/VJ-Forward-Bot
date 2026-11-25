@@ -43,10 +43,12 @@ pip install -r requirements.txt
 | `BOT_TOKEN` | हाँ | @BotFather से token |
 | `BOT_OWNER` | हाँ | Owner का numeric Telegram user ID (`BOT_OWNER_ID` alias भी स्वीकार है) |
 | `DATABASE_URI` | हाँ | MongoDB URI |
-| `DATABASE_NAME` | नहीं | Database नाम; default `vj-forward-bot` |
-| `BOT_SESSION` | नहीं | Kurigram session name; default `vjbot` |
+| `DATABASE_NAME` | नहीं | Database नाम; default `forword-bot` |
+| `BOT_SESSION` | नहीं | Kurigram session name; default `forwordbot` |
 | `LOG_LEVEL` | नहीं | Python logging level; default `INFO` |
 | `PORT` | नहीं | Health service port; default `8000` |
+
+यदि पुराने deployment ने `DATABASE_NAME` explicitly set नहीं किया था, तो saved data बनाए रखने के लिए upgrade के बाद `DATABASE_NAME` में वही पुराना database name दें; नया default `forword-bot` है। `BOT_SESSION` बदलने पर session पुनः authorize हो सकता है।
 
 फिर bot worker चलाएँ:
 
@@ -64,8 +66,8 @@ Bot startup पर configuration validate होगी, MongoDB ping/index setup
 ## Docker
 
 ```bash
-docker build -t vj-forward-bot .
-docker run --env-file .env -p 8000:8000 vj-forward-bot
+docker build -t forword-bot .
+docker run --env-file .env -p 8000:8000 forword-bot
 ```
 
 Container में Telegram worker और health endpoint दोनों चलेंगे। `GET /healthz` liveness check के लिए है; `GET /` service status JSON देता है। Worker deployment में `Procfile` का `worker: python3 main.py` इस्तेमाल किया जा सकता है।
