@@ -76,6 +76,8 @@ A Telegram assistant for configuring and managing message forwarding.
 
 <b>Fetched</b>       <code>{}</code>
 <b>Forwarded</b>     <code>{}</code>
+<b>Videos</b>        <code>{}</code>
+<b>Images</b>        <code>{}</code>
 <b>Duplicates</b>    <code>{}</code>
 <b>Deleted</b>       <code>{}</code>
 <b>Skipped</b>       <code>{}</code>

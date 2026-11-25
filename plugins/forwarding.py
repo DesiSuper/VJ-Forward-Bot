@@ -32,6 +32,8 @@ PROGRESS = (
     "<b>Progress:</b> <code>{}%</code>\n"
     "<b>Scanned:</b> <code>{}</code>\n"
     "<b>Forwarded:</b> <code>{}</code>\n"
+    "<b>Videos:</b> <code>{}</code>\n"
+    "<b>Images:</b> <code>{}</code>\n"
     "<b>Remaining:</b> <code>{}</code>\n"
     "<b>Status:</b> <code>{}</code>\n"
     "<b>Estimated remaining:</b> <code>{}</code>\n"
@@ -43,6 +45,26 @@ async def pause_between_messages(gap, default_delay):
     delay = choose_random_gap(gap, default_delay)
     if delay > 0:
         await asyncio.sleep(delay)
+
+
+def media_counter_key(message):
+    """Return the progress counter for successfully sent video/image media."""
+    if getattr(message, "video", None) or getattr(message, "video_note", None):
+        return "videos"
+    if getattr(message, "photo", None):
+        return "photos"
+    document = getattr(message, "document", None)
+    mime_type = (getattr(document, "mime_type", "") or "").lower()
+    file_name = (getattr(document, "file_name", "") or "").lower()
+    if mime_type.startswith("video/") or file_name.endswith(
+        (".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".mpeg", ".mpg", ".ts")
+    ):
+        return "videos"
+    if mime_type.startswith("image/") or file_name.endswith(
+        (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff", ".heic")
+    ):
+        return "photos"
+    return None
 
 
 async def forward_source_messages(
@@ -64,6 +86,7 @@ async def forward_source_messages(
     """Shared forwarding loop for new and resumed jobs."""
     pending_message_ids = []
     pending_file_ids = []
+    pending_media_counts = []
     scanned_since_update = 0
     batch_size = 1 if random_gap[1] > 0 else 100
     keywords = options.get("keywords") or ()
@@ -101,6 +124,7 @@ async def forward_source_messages(
             if source_message.media
             else None
         )
+        media_kind = media_counter_key(source_message)
         if media_object and (
             extension_filter(extensions, getattr(media_object, "file_name", None))
             or keyword_filter(keywords, getattr(media_object, "file_name", None))
@@ -121,6 +145,7 @@ async def forward_source_messages(
 
         if forward_tag:
             pending_message_ids.append(source_message.id)
+            pending_media_counts.append(media_kind)
             if document and options["skip_duplicate"]:
                 pending_file_ids.append(document.file_id)
             remaining = task.get("total") - task.get("fetched")
@@ -131,6 +156,9 @@ async def forward_source_messages(
                 )
                 if forwarded:
                     task.add("total_files", batch_count)
+                    for media_type in pending_media_counts:
+                        if media_type:
+                            task.add(media_type)
                     if user_db:
                         for file_id in pending_file_ids:
                             await user_db.add_file(file_id)
@@ -139,6 +167,7 @@ async def forward_source_messages(
                     task.add("deleted", batch_count)
                 pending_message_ids.clear()
                 pending_file_ids.clear()
+                pending_media_counts.clear()
             continue
 
         details = {
@@ -151,6 +180,8 @@ async def forward_source_messages(
         copied = await copy(user_id, client, details, progress_message, task)
         if copied:
             task.add("total_files")
+            if media_kind:
+                task.add(media_kind)
             if document and options["skip_duplicate"] and user_db:
                 await user_db.add_file(document.file_id)
             await pause_between_messages(random_gap, default_delay)
@@ -381,8 +412,37 @@ async def edit(user, msg, title, status, sts):
    i = sts.get(full=True)
    status = 'Forwarding' if status == 5 else f"sleeping {status} s" if str(status).isnumeric() else status
    percentage = f"{float(i.fetched)*100/float(i.total):.0f}"
-   text = TEXT.format(i.fetched, i.total_files, i.duplicate, i.deleted, i.skip, i.filtered, status, percentage, title)
-   await update_forward(user_id=user, last_id=None, start_time=i.start, limit=i.limit, chat_id=i.FROM, toid=i.TO, forward_id=None, msg_id=msg.id, fetched=i.fetched, deleted=i.deleted, total=i.total_files, duplicate=i.duplicate, skip=i.skip, filterd=i.filtered)
+   text = TEXT.format(
+       i.fetched,
+       i.total_files,
+       i.videos,
+       i.photos,
+       i.duplicate,
+       i.deleted,
+       i.skip,
+       i.filtered,
+       status,
+       percentage,
+       title,
+   )
+   await update_forward(
+       user_id=user,
+       last_id=None,
+       start_time=i.start,
+       limit=i.limit,
+       chat_id=i.FROM,
+       toid=i.TO,
+       forward_id=None,
+       msg_id=msg.id,
+       fetched=i.fetched,
+       deleted=i.deleted,
+       total=i.total_files,
+       videos=i.videos,
+       photos=i.photos,
+       duplicate=i.duplicate,
+       skip=i.skip,
+       filterd=i.filtered,
+   )
    now = time.time()
    diff = int(now - i.start)
    speed = sts.divide(i.fetched, diff)
@@ -510,8 +570,15 @@ async def status_msg(bot, msg):
     elapsed = await get_bot_uptime(sts.get("start"))
     return await msg.answer(
         PROGRESS.format(
-            percentage, fetched, forwarded, remaining, status,
-            estimated_remaining, elapsed,
+            percentage,
+            fetched,
+            forwarded,
+            sts.get("videos"),
+            sts.get("photos"),
+            remaining,
+            status,
+            estimated_remaining,
+            elapsed,
         ),
         show_alert=True,
     )
@@ -555,6 +622,8 @@ async def restart_pending_forwads(bot, user):
        sts.add('filtered', value=settings['filtered'])
        sts.add('deleted', value=settings['deleted'])
        sts.add('total_files', value=settings['total'])
+       sts.add('videos', value=settings.get('videos', 0))
+       sts.add('photos', value=settings.get('photos', 0))
        m = await bot.get_messages(user, settings['msg_id'])
        _bot, caption, forward_tag, datas, protect, button = await sts.get_data(user)
        i = sts.get(full=True)

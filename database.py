@@ -47,6 +47,8 @@ DEFAULT_FORWARD_DETAILS: dict[str, Any] = {
     "offset": 0,
     "deleted": 0,
     "total": 0,
+    "videos": 0,
+    "photos": 0,
     "duplicate": 0,
     "skip": 0,
     "filtered": 0,
@@ -274,9 +276,12 @@ class Db:
     async def get_forward_details(self, user_id: int) -> dict[str, Any]:
         self._require_database()
         user = await self.nfy.find_one({"user_id": int(user_id)}, {"details": 1})
-        if not user or "details" not in user:
+        stored_details = (user or {}).get("details")
+        if not isinstance(stored_details, dict):
             return deepcopy(DEFAULT_FORWARD_DETAILS)
-        return user["details"]
+        details = deepcopy(DEFAULT_FORWARD_DETAILS)
+        details.update(stored_details)
+        return details
 
     async def update_forward(self, user_id: int, details: dict[str, Any]) -> None:
         self._require_database()

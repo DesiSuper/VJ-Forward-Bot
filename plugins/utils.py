@@ -40,6 +40,8 @@ class STS:
             "FROM": source,
             "TO": target,
             "total_files": 0,
+            "videos": 0,
+            "photos": 0,
             "skip": skip,
             "limit": limit,
             "fetched": skip,

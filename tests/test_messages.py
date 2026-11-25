@@ -7,7 +7,10 @@ class MessageTemplateTests(unittest.TestCase):
     def test_positional_templates_accept_expected_values(self):
         self.assertIn("Ari", Script.START_TXT.format("Ari"))
         self.assertIn("Uptime", Script.STATUS_TXT.format("1h", 10, 2, 1))
-        self.assertIn("Fetched", Script.TEXT.format(1, 2, 3, 4, 5, 6, "Running", 50, "Task"))
+        self.assertIn(
+            "Fetched",
+            Script.TEXT.format(1, 2, 3, 4, 5, 6, 7, 8, "Running", 50, "Task"),
+        )
         self.assertIn("scanned", Script.DUPLICATE_TEXT.format(10, 2, "Done"))
 
     def test_public_copy_has_no_promotion_or_subscription_gate_links(self):
