@@ -9,6 +9,11 @@ import sys
 
 from pyrogram import Client, idle
 
+try:
+    import uvloop
+except ImportError:  # Optional on platforms without uvloop wheels.
+    uvloop = None
+
 from config import Config
 from database import db
 from plugins.forwarding import restart_forwards
@@ -63,7 +68,12 @@ async def run() -> None:
 def main() -> None:
     configure_logging()
     try:
-        asyncio.run(run())
+        if uvloop is not None:
+            LOGGER.info("Using uvloop event loop")
+            uvloop.run(run())
+        else:
+            LOGGER.info("uvloop is unavailable; using the standard asyncio loop")
+            asyncio.run(run())
     except KeyboardInterrupt:
         LOGGER.info("Shutdown requested")
     except Exception:
