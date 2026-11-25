@@ -35,15 +35,26 @@ async def settings_query(bot, query):
   user_id = query.from_user.id
   i, type = query.data.split("#")
   buttons = [[InlineKeyboardButton('⬅️ Back', callback_data="settings#main")]]
-  if type in {"main", "extra", "filters", "nextfilters", "filter_presets", "random_gap"}:
+  if type in {"main", "extra", "filters", "nextfilters", "filter_presets"}:
      text, markup = await settings_dashboard(user_id, PENDING_REVIEW.get(user_id))
+     return await query.message.edit_text(text, reply_markup=markup)
+
+  elif type in {"size_filter", "file_size", "maxfile_size"}:
+     config = await get_configs(user_id)
+     text, markup = size_filter_dashboard(config, PENDING_REVIEW.get(user_id))
+     return await query.message.edit_text(text, reply_markup=markup)
+
+  elif type in {"time_gap", "random_gap"}:
+     config = await get_configs(user_id)
+     text, markup = time_gap_dashboard(config, PENDING_REVIEW.get(user_id))
      return await query.message.edit_text(text, reply_markup=markup)
 
   elif type.startswith("gap:"):
      _, minimum, maximum = type.split(":")
      gap = {"min": int(minimum), "max": int(maximum)}
      await update_configs(user_id, "random_gap", gap)
-     text, markup = await settings_dashboard(user_id, PENDING_REVIEW.get(user_id))
+     config = await get_configs(user_id)
+     text, markup = time_gap_dashboard(config, PENDING_REVIEW.get(user_id))
      return await query.message.edit_text(text, reply_markup=markup)
 
   elif type == "custom_gap":
@@ -75,8 +86,9 @@ async def settings_query(bot, query):
              "or a fixed number from 0 to 3600."
          )
      await update_configs(user_id, "random_gap", {"min": minimum, "max": maximum})
-     dashboard_text, dashboard_markup = await settings_dashboard(
-         user_id, PENDING_REVIEW.get(user_id)
+     config = await get_configs(user_id)
+     dashboard_text, dashboard_markup = time_gap_dashboard(
+         config, PENDING_REVIEW.get(user_id)
      )
      return await answer.reply_text(dashboard_text, reply_markup=dashboard_markup)
 
@@ -350,7 +362,7 @@ async def settings_query(bot, query):
         "<b>✓ Database URI removed.</b>",
         reply_markup=InlineKeyboardMarkup(buttons))
 
-  elif type in {"filters", "filter_presets", "nextfilters", "file_size", "maxfile_size"}:
+  elif type in {"filters", "filter_presets", "nextfilters"}:
      text, markup = await settings_dashboard(user_id, PENDING_REVIEW.get(user_id))
      return await query.message.edit_text(text, reply_markup=markup)
 
@@ -381,7 +393,8 @@ async def settings_query(bot, query):
     if not 0 <= size <= 4000:
       return await query.answer("Choose a size from 0 to 4000 MB.", show_alert=True)
     await update_configs(user_id, "min_size", size)
-    text, markup = await settings_dashboard(user_id, PENDING_REVIEW.get(user_id))
+    config = await get_configs(user_id)
+    text, markup = size_filter_dashboard(config, PENDING_REVIEW.get(user_id))
     return await query.message.edit_text(text, reply_markup=markup)
 
   elif type.startswith("maxupdate_size:"):
@@ -389,7 +402,8 @@ async def settings_query(bot, query):
     if not 0 <= size <= 4000:
       return await query.answer("Choose a size from 0 to 4000 MB.", show_alert=True)
     await update_configs(user_id, "max_size", size)
-    text, markup = await settings_dashboard(user_id, PENDING_REVIEW.get(user_id))
+    config = await get_configs(user_id)
+    text, markup = size_filter_dashboard(config, PENDING_REVIEW.get(user_id))
     return await query.message.edit_text(text, reply_markup=markup)
 
   elif type == "add_extension":
@@ -515,9 +529,6 @@ async def settings_dashboard(user_id, continue_task_id=None):
     )
 
     selected_filters = config.get("filters") or {}
-    gap_min, gap_max = normalize_random_gap(config.get("random_gap"))
-    minimum_size = max(0, int(config.get("min_size") or 0))
-    maximum_size = max(0, int(config.get("max_size") or 0))
     keyboard = [
         [
             InlineKeyboardButton("🤖 Accounts", callback_data="settings#bots"),
@@ -547,74 +558,98 @@ async def settings_dashboard(user_id, continue_task_id=None):
         [message_type_toggle("🔒 Protect content", config.get("protect", False), "protect")],
         [InlineKeyboardButton("📝 Caption", callback_data="settings#caption")],
         [
-            InlineKeyboardButton(
-                f"Min size −5 MB ({minimum_size})",
-                callback_data=f"settings#update_size:{max(0, minimum_size - 5)}",
-            ),
-            InlineKeyboardButton(
-                f"Min size +5 MB ({minimum_size})",
-                callback_data=f"settings#update_size:{min(4000, minimum_size + 5)}",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                f"Max size −5 MB ({maximum_size})",
-                callback_data=f"settings#maxupdate_size:{max(0, maximum_size - 5)}",
-            ),
-            InlineKeyboardButton(
-                f"Max size +5 MB ({maximum_size})",
-                callback_data=f"settings#maxupdate_size:{min(4000, maximum_size + 5)}",
-            ),
+            InlineKeyboardButton("📦 Size filter", callback_data="settings#size_filter"),
+            InlineKeyboardButton("⏱️ Time gap", callback_data="settings#time_gap"),
         ],
         [
             InlineKeyboardButton("🔑 Keywords", callback_data="settings#get_keyword"),
             InlineKeyboardButton("📎 Extensions", callback_data="settings#get_extension"),
         ],
-        [
-            InlineKeyboardButton(
-                "⏸️ Delay off" if (gap_min, gap_max) == (0, 0) else "⏸️ Off",
-                callback_data="settings#gap:0:0",
-            ),
-            InlineKeyboardButton(
-                "✅ 1–3 sec" if (gap_min, gap_max) == (1, 3) else "⏱️ 1–3 sec",
-                callback_data="settings#gap:1:3",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "✅ 3–7 sec" if (gap_min, gap_max) == (3, 7) else "⏱️ 3–7 sec",
-                callback_data="settings#gap:3:7",
-            ),
-            InlineKeyboardButton(
-                "✅ 5–15 sec" if (gap_min, gap_max) == (5, 15) else "⏱️ 5–15 sec",
-                callback_data="settings#gap:5:15",
-            ),
-        ],
-        [
-            InlineKeyboardButton("✎ Custom delay", callback_data="settings#custom_gap"),
-            InlineKeyboardButton("🗄 Duplicate database", callback_data="settings#database"),
-        ],
+        [InlineKeyboardButton("🗄 Duplicate database", callback_data="settings#database")],
     ]
     if continue_task_id:
-        keyboard.extend(
-            [
-                [
-                    InlineKeyboardButton(
-                        "✅ Continue & start forwarding",
-                        callback_data=f"continue_public_{continue_task_id}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "❌ Cancel task setup",
-                        callback_data=f"cancel_public_{continue_task_id}",
-                    )
-                ],
-            ]
-        )
+        append_task_controls(keyboard, continue_task_id)
     else:
         keyboard.append([InlineKeyboardButton("🏠 Main menu", callback_data="home")])
     return text, InlineKeyboardMarkup(keyboard)
+
+
+def size_filter_dashboard(config, continue_task_id=None):
+    minimum = max(0, int(config.get("min_size") or 0))
+    maximum = max(0, int(config.get("max_size") or 0))
+    keyboard = [
+        [
+            InlineKeyboardButton("Min −5 MB", callback_data=f"settings#update_size:{max(0, minimum - 5)}"),
+            InlineKeyboardButton("Min +5 MB", callback_data=f"settings#update_size:{min(4000, minimum + 5)}"),
+            InlineKeyboardButton("Clear min", callback_data="settings#update_size:0"),
+        ],
+        [
+            InlineKeyboardButton("Max −5 MB", callback_data=f"settings#maxupdate_size:{max(0, maximum - 5)}"),
+            InlineKeyboardButton("Max +5 MB", callback_data=f"settings#maxupdate_size:{min(4000, maximum + 5)}"),
+            InlineKeyboardButton("Clear max", callback_data="settings#maxupdate_size:0"),
+        ],
+        [InlineKeyboardButton("⬅️ Back to all settings", callback_data="settings#main")],
+    ]
+    if continue_task_id:
+        append_task_controls(keyboard, continue_task_id)
+    else:
+        keyboard.append([InlineKeyboardButton("🏠 Main menu", callback_data="home")])
+    text = (
+        "<b>📦 Size filter</b>\n\n"
+        f"<b>Minimum:</b> {minimum} MB\n"
+        f"<b>Maximum:</b> {maximum} MB\n\n"
+        "Files smaller than the minimum or larger than the maximum are skipped. "
+        "Set either value to 0 for no limit. Each tap changes the limit by 5 MB."
+    )
+    return text, InlineKeyboardMarkup(keyboard)
+
+
+def time_gap_dashboard(config, continue_task_id=None):
+    gap_min, gap_max = normalize_random_gap(config.get("random_gap"))
+    presets = ((0, 0, "⏸️ Off"), (1, 3, "⏱️ 1–3 sec"), (3, 7, "⏱️ 3–7 sec"), (5, 15, "⏱️ 5–15 sec"))
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                f"✅ {label}" if (gap_min, gap_max) == (minimum, maximum) else label,
+                callback_data=f"settings#gap:{minimum}:{maximum}",
+            )
+            for minimum, maximum, label in presets[:2]
+        ],
+        [
+            InlineKeyboardButton(
+                f"✅ {label}" if (gap_min, gap_max) == (minimum, maximum) else label,
+                callback_data=f"settings#gap:{minimum}:{maximum}",
+            )
+            for minimum, maximum, label in presets[2:]
+        ],
+        [InlineKeyboardButton("✎ Custom delay", callback_data="settings#custom_gap")],
+        [InlineKeyboardButton("⬅️ Back to all settings", callback_data="settings#main")],
+    ]
+    if continue_task_id:
+        append_task_controls(keyboard, continue_task_id)
+    else:
+        keyboard.append([InlineKeyboardButton("🏠 Main menu", callback_data="home")])
+    if gap_min == gap_max == 0:
+        current = "Off"
+    elif gap_min == gap_max:
+        current = f"{gap_min} seconds (fixed)"
+    else:
+        current = f"{gap_min}–{gap_max} seconds (random)"
+    text = (
+        "<b>⏱️ Time gap</b>\n\n"
+        f"Current delay: <b>{current}</b>\n"
+        "Choose a preset or enter a custom delay between forwarded messages."
+    )
+    return text, InlineKeyboardMarkup(keyboard)
+
+
+def append_task_controls(keyboard, task_id):
+    keyboard.extend(
+        [
+            [InlineKeyboardButton("✅ Continue & start forwarding", callback_data=f"continue_public_{task_id}")],
+            [InlineKeyboardButton("❌ Cancel task setup", callback_data=f"cancel_public_{task_id}")],
+        ]
+    )
 
 
 def message_type_toggle(label, enabled, key):

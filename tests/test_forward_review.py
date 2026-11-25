@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from config import temp
 from forward_review import format_forwarding_settings
 from plugins.forwarding import review_forwarding_task
+from plugins.settings import size_filter_dashboard, time_gap_dashboard
 from plugins.utils import STS
 
 
@@ -36,6 +37,36 @@ class ForwardReviewTests(unittest.TestCase):
         )
         self.assertIn("&lt;b&gt;unsafe&lt;/b&gt;", text)
         self.assertNotIn("<b>unsafe</b>", text)
+
+    def test_size_and_time_gap_settings_are_grouped_in_submenus(self):
+        size_text, size_markup = size_filter_dashboard(
+            {"min_size": 10, "max_size": 50}, "321-654"
+        )
+        gap_text, gap_markup = time_gap_dashboard(
+            {"random_gap": {"min": 3, "max": 7}}, "321-654"
+        )
+        size_callbacks = [
+            button.callback_data
+            for row in size_markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+        gap_callbacks = [
+            button.callback_data
+            for row in gap_markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+
+        self.assertIn("Size filter", size_text)
+        self.assertIn("Minimum:</b> 10 MB", size_text)
+        self.assertIn("settings#update_size:15", size_callbacks)
+        self.assertIn("settings#maxupdate_size:55", size_callbacks)
+        self.assertIn("continue_public_321-654", size_callbacks)
+        self.assertIn("Time gap", gap_text)
+        self.assertIn("✅ ⏱️ 3–7 sec", gap_markup.inline_keyboard[1][0].text)
+        self.assertIn("settings#gap:5:15", gap_callbacks)
+        self.assertIn("continue_public_321-654", gap_callbacks)
 
 
 class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
@@ -81,6 +112,14 @@ class ForwardReviewCallbackTests(unittest.IsolatedAsyncioTestCase):
             if button.callback_data
         ]
         self.assertIn("settings#updatefilter-text-False", callback_data)
+        self.assertIn("settings#size_filter", callback_data)
+        self.assertIn("settings#time_gap", callback_data)
+        self.assertFalse(any(
+            item.startswith("settings#update_size:")
+            or item.startswith("settings#maxupdate_size:")
+            or item.startswith("settings#gap:")
+            for item in callback_data
+        ))
         self.assertFalse(any(
             "voice" in item or "animation" in item or "sticker" in item or "poll" in item
             for item in callback_data
