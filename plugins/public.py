@@ -18,7 +18,7 @@ from messages import Script
 
 from .ui import InlineKeyboardButton
 from .utils import STS, get_forward_origin, get_forwarded_chat
-from .clients import update_configs
+from .clients import get_client, update_configs
 from .prompts import ask as prompt_for_input
 
 logger = logging.getLogger(__name__)
@@ -194,6 +194,31 @@ async def show_source_manager(message, user_id, destination):
     )
 
 
+async def latest_source_message_id(user_id, chat_id):
+    """Find the latest message using the user's connected forwarding account."""
+    account = await db.get_bot(user_id)
+    if account is None:
+        account = await db.get_userbot(user_id)
+    if account is None:
+        raise RuntimeError("No forwarding account is connected")
+
+    is_bot = bool(account.get("is_bot"))
+    session = account.get("token") if is_bot else account.get("session")
+    if not session:
+        raise RuntimeError("The saved forwarding account has no usable session")
+    client = await get_client(session, is_bot=is_bot)
+    started = False
+    try:
+        await client.start()
+        started = True
+        async for source_message in client.get_chat_history(chat_id, limit=1):
+            return source_message.id
+        return None
+    finally:
+        if started:
+            await client.stop()
+
+
 async def begin_forward(
     bot,
     message,
@@ -238,76 +263,76 @@ async def begin_forward(
         save_new_source = True
 
     if selected_source:
-        prompt_text = (
-            f"<b>Source selected:</b> {escape(str(selected_source.get('title') or 'Saved channel'))}\n\n"
-            "Forward a message from this source or send a link to its latest message.\n"
-            "Send <code>/cancel</code> to stop."
-        )
-    else:
-        prompt_text = Script.FROM_MSG
-    try:
-        fromid = await prompt_for_input(
-            bot, message.chat.id, prompt_text, filters=filters.all, timeout=600
-        )
-    except TimeoutError:
-        return await message.reply_text("<b>Source selection timed out.</b> Start again with <code>/forward</code>.")
-    if fromid.text and fromid.text.strip().lower() == "/cancel":
-        return await message.reply(Script.CANCEL)
-
-    origin = get_forward_origin(fromid)
-    source_chat = get_forwarded_chat(fromid)
-    if fromid.text and not getattr(origin, "date", None):
-        regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
-        match = regex.match(fromid.text.strip().replace("?single", ""))
-        if not match:
-            return await message.reply('<b>That message link is invalid.</b> Send a valid Telegram message link.')
-        chat_id = match.group(4)
-        last_msg_id = int(match.group(5))
-        if chat_id.isnumeric():
-            chat_id = int("-100" + chat_id)
-    elif source_chat and source_chat.type in {
-        enums.ChatType.CHANNEL,
-        enums.ChatType.GROUP,
-        enums.ChatType.SUPERGROUP,
-        enums.ChatType.FORUM,
-    }:
-        last_msg_id = getattr(origin, "message_id", None)
-        if last_msg_id is None:
-            return await message.reply_text(
-                "<b>This forwarded message hides its original message ID.</b> Send a link to a message in that chat instead."
-            )
-        chat_id = source_chat.username or source_chat.id
-    else:
-        return await message.reply_text(
-            "<b>Could not identify the source chat.</b> Forward a group/channel message or send its message link."
-        )
-
-    try:
-        resolved_source = await bot.get_chat(chat_id)
-        source_id = resolved_source.id
-        title = resolved_source.title or str(source_id)
-    except (PrivateChat, ChannelPrivate, ChannelInvalid):
-        source_id = source_chat.id if source_chat else chat_id
-        title = source_chat.title if source_chat else str(source_id)
-    except (UsernameInvalid, UsernameNotModified):
-        return await message.reply('<b>That Telegram link could not be resolved.</b> Check it and try again.')
-    except Exception:
-        logger.exception("Could not resolve forwarding source for user %s", user_id)
-        return await message.reply("<b>Could not load that chat.</b> Check the source link and connected account access.")
-
-    if selected_source:
-        if str(source_id) != str(selected_source.get("chat_id")):
-            return await message.reply_text(
-                "<b>That message is from a different channel.</b> Send a message or link from the saved source you selected."
-            )
         chat_id = selected_source["chat_id"]
         source_id = selected_source["chat_id"]
-        title = selected_source.get("title") or title
-    elif save_new_source:
-        source = {"chat_id": source_id, "title": title}
-        if not any(str(item.get("chat_id")) == str(source_id) for item in saved_sources):
-            saved_sources.append(source)
-            await update_configs(user_id, "sources", saved_sources)
+        title = selected_source.get("title") or str(source_id)
+        try:
+            last_msg_id = await latest_source_message_id(user_id, chat_id)
+        except Exception:
+            logger.exception("Could not load the latest message from saved source for user %s", user_id)
+            return await message.reply_text(
+                "<b>Could not read this saved source.</b> Make sure the connected account can access it."
+            )
+        if last_msg_id is None:
+            return await message.reply_text(
+                "<b>No messages were found in this saved source.</b> Send a message to the channel first, then try again."
+            )
+    else:
+        try:
+            fromid = await prompt_for_input(
+                bot, message.chat.id, Script.FROM_MSG, filters=filters.all, timeout=600
+            )
+        except TimeoutError:
+            return await message.reply_text("<b>Source selection timed out.</b> Start again with <code>/forward</code>.")
+        if fromid.text and fromid.text.strip().lower() == "/cancel":
+            return await message.reply(Script.CANCEL)
+
+        origin = get_forward_origin(fromid)
+        source_chat = get_forwarded_chat(fromid)
+        if fromid.text and not getattr(origin, "date", None):
+            regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+            match = regex.match(fromid.text.strip().replace("?single", ""))
+            if not match:
+                return await message.reply('<b>That message link is invalid.</b> Send a valid Telegram message link.')
+            chat_id = match.group(4)
+            last_msg_id = int(match.group(5))
+            if chat_id.isnumeric():
+                chat_id = int("-100" + chat_id)
+        elif source_chat and source_chat.type in {
+            enums.ChatType.CHANNEL,
+            enums.ChatType.GROUP,
+            enums.ChatType.SUPERGROUP,
+            enums.ChatType.FORUM,
+        }:
+            last_msg_id = getattr(origin, "message_id", None)
+            if last_msg_id is None:
+                return await message.reply_text(
+                    "<b>This forwarded message hides its original message ID.</b> Send a link to a message in that chat instead."
+                )
+            chat_id = source_chat.username or source_chat.id
+        else:
+            return await message.reply_text(
+                "<b>Could not identify the source chat.</b> Forward a group/channel message or send its message link."
+            )
+
+        try:
+            resolved_source = await bot.get_chat(chat_id)
+            source_id = resolved_source.id
+            title = resolved_source.title or str(source_id)
+        except (PrivateChat, ChannelPrivate, ChannelInvalid):
+            source_id = source_chat.id if source_chat else chat_id
+            title = source_chat.title if source_chat else str(source_id)
+        except (UsernameInvalid, UsernameNotModified):
+            return await message.reply('<b>That Telegram link could not be resolved.</b> Check it and try again.')
+        except Exception:
+            logger.exception("Could not resolve forwarding source for user %s", user_id)
+            return await message.reply("<b>Could not load that chat.</b> Check the source link and connected account access.")
+
+        if save_new_source:
+            source = {"chat_id": source_id, "title": title}
+            if not any(str(item.get("chat_id")) == str(source_id) for item in saved_sources):
+                saved_sources.append(source)
+                await update_configs(user_id, "sources", saved_sources)
 
     try:
         skipno = await prompt_for_input(bot,
