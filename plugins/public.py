@@ -428,10 +428,13 @@ async def begin_forward(
             "<b>Enter a non-negative whole number</b> for messages to skip, or send <code>/cancel</code>."
         )
     forward_id = f"{user_id}-{skipno.id}"
-    buttons = [[
-        InlineKeyboardButton('🚀 Start forwarding', callback_data=f"start_public_{forward_id}"),
-        InlineKeyboardButton('❌ Cancel', callback_data="close_btn")
-    ]]
+    buttons = [
+        [
+            InlineKeyboardButton('🚀 Start forwarding', callback_data=f"continue_public_{forward_id}"),
+            InlineKeyboardButton('⚙️ Settings', callback_data=f"start_public_{forward_id}"),
+        ],
+        [InlineKeyboardButton('❌ Cancel', callback_data=f"cancel_public_{forward_id}")],
+    ]
     reply_markup = InlineKeyboardMarkup(buttons)
     confirmation_text = Script.DOUBLE_CHECK.format(
         botname=escape(str(_bot.get('name') or 'Connected account')),
@@ -462,4 +465,15 @@ async def begin_forward(
             link_preview_options=LinkPreviewOptions(is_disabled=True),
             reply_markup=reply_markup,
         )
-    STS(forward_id).store(chat_id, toid, skip_count, int(last_msg_id))
+    STS(forward_id).store(
+        chat_id,
+        toid,
+        skip_count,
+        int(last_msg_id),
+        review={
+            "botname": str(_bot.get("name") or "Connected account"),
+            "botuname": str(_bot.get("username") or "no username"),
+            "from_chat": str(title),
+            "to_chat": str(to_title),
+        },
+    )

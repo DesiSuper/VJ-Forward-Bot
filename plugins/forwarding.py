@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import time
+from html import escape
 
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait, MessageNotModified
@@ -214,6 +215,46 @@ async def review_forwarding_task(bot, query):
         "Changes save immediately. Press <b>Continue & start forwarding</b> when ready."
     )
     await query.message.edit_text(review_text, reply_markup=markup)
+
+
+@Client.on_callback_query(filters.regex(r"^review_public_"))
+async def return_to_forward_review(bot, query):
+    user = query.from_user.id
+    if query.message.chat.id != user:
+        return await query.answer("Open this task in your private chat to review it.", show_alert=True)
+
+    forward_id = query.data.split("_", 2)[2]
+    if not forward_id.startswith(f"{user}-"):
+        return await query.answer("This task does not belong to your account.", show_alert=True)
+    task = STS(forward_id)
+    if not task.verify():
+        return await query.answer("This setup expired. Start again with /forward.", show_alert=True)
+    task_data = task.get(full=True)
+    if temp.lock.get(user) or task_data.TO in temp.IS_FRWD_CHAT:
+        return await query.answer("A forwarding task is already active.", show_alert=True)
+    review = task.get("review") or {}
+    if not review:
+        return await query.answer("Task review is no longer available. Start again with /forward.", show_alert=True)
+
+    await query.answer()
+    PENDING_REVIEW.pop(user, None)
+    review_text = Script.DOUBLE_CHECK.format(
+        botname=escape(str(review.get("botname") or "Connected account")),
+        botuname=escape(str(review.get("botuname") or "no username")),
+        from_chat=escape(str(review.get("from_chat") or task_data.FROM)),
+        to_chat=escape(str(review.get("to_chat") or task_data.TO)),
+        skip=escape(str(task_data.skip)),
+    )
+    reply_markup = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🚀 Start forwarding", callback_data=f"continue_public_{forward_id}"),
+                InlineKeyboardButton("⚙️ Settings", callback_data=f"start_public_{forward_id}"),
+            ],
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_public_{forward_id}")],
+        ]
+    )
+    return await query.message.edit_text(review_text, reply_markup=reply_markup)
 
 
 @Client.on_callback_query(filters.regex(r"^cancel_public_"))

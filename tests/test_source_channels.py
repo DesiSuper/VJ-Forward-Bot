@@ -161,6 +161,15 @@ class SourceChannelSelectionTests(unittest.IsolatedAsyncioTestCase):
         setup_message.delete.assert_awaited_once()
         confirmation_reply.assert_awaited_once()
         self.assertIn("Review forwarding task", confirmation_reply.await_args.kwargs["text"])
+        callbacks = [
+            button.callback_data
+            for row in confirmation_reply.await_args.kwargs["reply_markup"].inline_keyboard
+            for button in row
+        ]
+        self.assertIn(f"continue_public_{forward_id}", callbacks)
+        self.assertIn(f"start_public_{forward_id}", callbacks)
+        self.assertIn(f"cancel_public_{forward_id}", callbacks)
+        self.assertEqual(STS(forward_id).get("review")["from_chat"], "Saved source")
         message.reply_text.assert_not_awaited()
         STS(forward_id).data.pop(forward_id, None)
 
