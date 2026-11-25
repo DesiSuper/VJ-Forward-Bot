@@ -33,20 +33,6 @@ For private chats, the connected account must have access to the source. The bot
 
 Use <code>/cancel</code> during setup to leave the current step. A connected user account carries its own security and account risk; only connect an account you control."""
 
-    ABOUT_TXT = """<b>About this bot</b>
-
-A Telegram assistant for configuring and managing message forwarding.
-
-<b>Built with:</b> Python and Kurigram
-<b>Version:</b> 1.0"""
-
-    STATUS_TXT = """<b>Service status</b>
-
-<b>Uptime</b>       <code>{}</code>
-<b>Users</b>        <code>{}</code>
-<b>Connected bots</b> <code>{}</code>
-<b>Active tasks</b> <code>{}</code>"""
-
     FROM_MSG = (
         "<b>Choose a source chat</b>\n\n"
         "Forward a message from the source or send a link to its latest message.\n"

@@ -6,7 +6,6 @@ from messages import Script
 class MessageTemplateTests(unittest.TestCase):
     def test_positional_templates_accept_expected_values(self):
         self.assertIn("Ari", Script.START_TXT.format("Ari"))
-        self.assertIn("Uptime", Script.STATUS_TXT.format("1h", 10, 2, 1))
         self.assertIn(
             "Fetched",
             Script.TEXT.format(1, 2, 3, 4, 5, 6, 7, 8, "Running", 50, "Task"),
@@ -15,7 +14,7 @@ class MessageTemplateTests(unittest.TestCase):
 
     def test_public_copy_has_no_promotion_or_subscription_gate_links(self):
         public_copy = "\\n".join(
-            [Script.START_TXT, Script.HELP_TXT, Script.HOW_USE_TXT, Script.ABOUT_TXT]
+            [Script.START_TXT, Script.HELP_TXT, Script.HOW_USE_TXT]
         ).lower()
         for text in ("youtube.com", "t.me/", "subscribe", "join our channel"):
             self.assertNotIn(text, public_copy)

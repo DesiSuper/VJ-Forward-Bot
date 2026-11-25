@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import time
 from html import escape
 from types import SimpleNamespace
 
-import psutil
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, LinkPreviewOptions
 
@@ -15,9 +13,6 @@ from .ui import InlineKeyboardButton
 from config import Config
 from database import db
 from messages import Script
-
-START_TIME = time.time()
-
 
 def home_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -29,10 +24,6 @@ def home_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton("⚙️  Settings", callback_data="settings#main"),
                 InlineKeyboardButton("📖  Help", callback_data="help"),
-            ],
-            [
-                InlineKeyboardButton("ℹ️  About", callback_data="about"),
-                InlineKeyboardButton("📡  Service status", callback_data="status"),
             ],
         ]
     )
@@ -51,15 +42,18 @@ async def dashboard_text(user_id: int) -> str:
         account_kind = "User account"
 
     channels = await db.get_user_channels(user_id)
+    sources = (await db.get_configs(user_id)).get("sources") or []
     active = await db.is_forwad_exit(user_id)
     details = await db.get_forward_details(user_id) if active else {}
 
     account_line = "Not connected"
     if account:
         username = account.get("username")
-        account_line = f"{account_kind}: {escape(account.get('name') or 'Connected')}"
+        account_line = f"{account_kind}: {escape(str(account.get('name') or 'Connected'))}"
         if username:
-            account_line += f" (@{escape(username)})"
+            account_line += f" (@{escape(str(username))})"
+        if account.get("id") is not None:
+            account_line += f" · ID <code>{escape(str(account['id']))}</code>"
 
     if active:
         fetched = int(details.get("fetched") or 0)
@@ -78,17 +72,27 @@ async def dashboard_text(user_id: int) -> str:
         readiness = "Add a destination channel to continue"
 
     destinations = "\n".join(
-        f"• {escape(str(channel.get('title') or 'Untitled chat'))}"
+        f"• {escape(str(channel.get('title') or 'Untitled chat'))} "
+        f"<code>{escape(str(channel.get('chat_id') or ''))}</code>"
         for channel in channels[:4]
     ) or "• No destinations added"
     if len(channels) > 4:
         destinations += f"\n• and {len(channels) - 4} more"
 
+    source_list = "\n".join(
+        f"• {escape(str(source.get('title') or 'Untitled chat'))} "
+        f"<code>{escape(str(source.get('chat_id') or ''))}</code>"
+        for source in sources[:4]
+    ) or "• No sources saved"
+    if len(sources) > 4:
+        source_list += f"\n• and {len(sources) - 4} more"
+
     return (
         "<b>📊 Your dashboard</b>\n\n"
         f"<b>Setup:</b> {escape(readiness)}\n"
-        f"<b>Connected:</b> {account_line}\n"
-        f"<b>Destinations:</b> {len(channels)}\n{destinations}\n\n"
+        f"<b>Connected account:</b> {account_line}\n\n"
+        f"<b>Destinations ({len(channels)}):</b>\n{destinations}\n\n"
+        f"<b>Saved sources ({len(sources)}):</b>\n{source_list}\n\n"
         f"<b>Forwarding:</b> {escape(task_line)}"
     )
 
@@ -175,13 +179,7 @@ async def help_page(client, query):
     await query.message.edit_text(
         Script.HELP_TXT,
         reply_markup=InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("🚦  Quick start", callback_data="how_to_use")],
-                [
-                    InlineKeyboardButton("⚙️  Settings", callback_data="settings#main"),
-                    InlineKeyboardButton("🏠 Home", callback_data="home"),
-                ],
-            ]
+            [[InlineKeyboardButton("🏠 Home", callback_data="home")]]
         ),
         link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
@@ -197,78 +195,3 @@ async def how_to_use(client, query):
         ),
         link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
-
-
-@Client.on_callback_query(filters.regex(r"^about$"))
-async def about(client, query):
-    await query.answer()
-    await query.message.edit_text(
-        Script.ABOUT_TXT,
-        reply_markup=InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("📊  Service stats", callback_data="status")],
-                [InlineKeyboardButton("🏠 Main menu", callback_data="home")],
-            ]
-        ),
-        link_preview_options=LinkPreviewOptions(is_disabled=True),
-    )
-
-
-@Client.on_callback_query(filters.regex(r"^status$"))
-async def status(client, query):
-    users_count, bots_count = await db.total_users_bots_count()
-    forwardings = await db.forwad_count()
-    uptime = await get_bot_uptime(START_TIME)
-    await query.answer()
-    await query.message.edit_text(
-        Script.STATUS_TXT.format(uptime, users_count, bots_count, forwardings),
-        reply_markup=InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("🖥  System details", callback_data="systm_sts")],
-                [InlineKeyboardButton("🏠 Main menu", callback_data="home")],
-            ]
-        ),
-        link_preview_options=LinkPreviewOptions(is_disabled=True),
-    )
-
-
-@Client.on_callback_query(filters.regex(r"^systm_sts$"))
-async def sys_status(client, query):
-    disk_usage = psutil.disk_usage("/")
-    total_space = disk_usage.total / (1024**3)
-    used_space = disk_usage.used / (1024**3)
-    free_space = disk_usage.free / (1024**3)
-    text = (
-        "<b>🖥 System status</b>\n\n"
-        f"<b>CPU:</b> <code>{psutil.cpu_percent()}%</code>\n"
-        f"<b>Memory:</b> <code>{psutil.virtual_memory().percent}%</code>\n"
-        f"<b>Disk used:</b> <code>{used_space:.2f} / {total_space:.2f} GB</code>\n"
-        f"<b>Disk free:</b> <code>{free_space:.2f} GB</code>"
-    )
-    await query.answer()
-    await query.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("📊 Service stats", callback_data="status")],
-                [InlineKeyboardButton("🏠 Main menu", callback_data="home")],
-            ]
-        ),
-        link_preview_options=LinkPreviewOptions(is_disabled=True),
-    )
-
-
-async def get_bot_uptime(start_time: float) -> str:
-    total_seconds = max(0, int(time.time() - start_time))
-    days, remainder = divmod(total_seconds, 86_400)
-    hours, remainder = divmod(remainder, 3_600)
-    minutes, seconds = divmod(remainder, 60)
-    parts = []
-    if days:
-        parts.append(f"{days}d")
-    if hours or days:
-        parts.append(f"{hours}h")
-    if minutes or hours or days:
-        parts.append(f"{minutes}m")
-    parts.append(f"{seconds}s")
-    return " ".join(parts)
