@@ -6,8 +6,11 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import datetime
+from html import escape
 
 from pyrogram import Client, idle
+from pyrogram.types import InlineKeyboardMarkup
 
 try:
     import uvloop
@@ -17,6 +20,7 @@ except ImportError:  # Optional on platforms without uvloop wheels.
 from config import Config
 from database import db
 from plugins.forwarding import cancel_pending_forwards, restart_forwards
+from plugins.ui import InlineKeyboardButton
 
 LOGGER = logging.getLogger("forword_bot")
 
@@ -30,6 +34,46 @@ def configure_logging() -> None:
         handlers=[logging.StreamHandler(sys.stdout)],
         force=True,
     )
+
+
+def startup_notification_text(bot_info, started_at: datetime | None = None) -> str:
+    """Format a compact, timezone-aware startup card for the bot owner."""
+    started_at = started_at or datetime.now().astimezone()
+    started_text = started_at.astimezone().strftime("%d %b %Y · %I:%M:%S %p %Z")
+    bot_name = escape(str(getattr(bot_info, "first_name", None) or "Forward Bot"))
+    username = getattr(bot_info, "username", None)
+    bot_identity = f"@{escape(str(username))}" if username else bot_name
+    return (
+        "🚀 <b>Forward Bot Started</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "🟢 <b>Status:</b> <code>Online</code>\n"
+        f"🤖 <b>Bot:</b> {bot_identity}\n"
+        f"🕒 <b>Started:</b> <code>{started_text}</code>\n"
+        "✅ <b>Forwarding:</b> Ready"
+    )
+
+
+async def notify_bot_owner_started(client, bot_info) -> None:
+    """Send the owner a startup card; notification failures must not stop the bot."""
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("📊 Admin dashboard", callback_data="dashboard"),
+                InlineKeyboardButton("📖 Help", callback_data="help"),
+            ]
+        ]
+    )
+    try:
+        await client.send_message(
+            Config.BOT_OWNER,
+            startup_notification_text(bot_info),
+            reply_markup=keyboard,
+        )
+    except Exception:
+        LOGGER.warning(
+            "Bot is running, but startup notification could not be delivered to BOT_OWNER",
+            exc_info=True,
+        )
 
 
 def create_bot() -> Client:
@@ -57,6 +101,7 @@ async def run() -> None:
 
         await restart_forwards(client)
         LOGGER.info("Scheduled pending forwarding jobs in the background")
+        await notify_bot_owner_started(client, bot_info)
         await idle()
     finally:
         await cancel_pending_forwards()
