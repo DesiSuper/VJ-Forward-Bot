@@ -4,28 +4,23 @@
 class Script:
     START_TXT = """<b>Welcome, {}!</b>
 
-I’m <b>Forword Bot</b> — a practical toolkit for managing message forwarding between Telegram chats.
+I’m <b>Forword Bot</b>. Forward messages, manage chats, and filter content.
 
-Use the buttons below to explore features, configure your destinations, or read the quick-start guide."""
+Choose an option below to get started."""
 
     HELP_TXT = """<b>Help &amp; commands</b>
 
-<b>Getting started</b>
-• <code>/start</code> — open the main menu
-• <code>/forward</code> — create a forwarding task
-• <code>/settings</code> — configure bots, chats, and filters
-• <code>/stop</code> — stop an active forwarding task
-• <code>/reset</code> — restore your default settings
-• <code>/unequify</code> — find and remove duplicate documents
-• <code>/status</code> — check your setup and active task
-• <code>/insta on|off|status</code> — control Instagram downloads (admin)
+• <code>/forward</code> — start forwarding
+• <code>/settings</code> — manage accounts, chats, and filters
+• <code>/status</code> — view setup and task status
+• <code>/stop</code> — stop forwarding
+• <code>/reset</code> — reset your settings
+• <code>/unequify</code> — remove duplicate files
+• <code>/insta on|off|status</code> — admin Instagram controls
 
-<b>Forwarding options</b>
-Saved source channels can be selected, added, or removed during each forwarding setup. Custom captions, random inter-message delays, duplicate handling, message-type filters, and size, extension, or keyword rules are available in settings.
+Connect an account with source access and permission to post in the destination."""
 
-For private chats, the connected account must have access to the source. The bot or user account needs the required permissions in the destination."""
-
-    GROUP_HELP_TXT = """<b>Group moderation · bot admin PM only</b>
+    GROUP_HELP_TXT = """<b>Group moderation · admin PM only</b>
 
 • <code>/dlink instagram.com/* 30s</code> — add/update a link rule
 • <code>/dlink list</code> — view domain-link rules
@@ -35,16 +30,15 @@ For private chats, the connected account must have access to the source. The bot
 • <code>/blacklist list</code>, <code>/blacklist list word</code>, <code>/blacklist list url</code>
 • <code>/ghelp</code> — show this guide
 
-Rules are shared across groups; matching messages from everyone are deleted after the set delay. Use <code>0s</code> for immediate deletion."""
+Rules are shared across groups. They delete matching messages from everyone after the configured delay. Use <code>0s</code> for immediate deletion."""
 
     HOW_USE_TXT = """<b>Quick start</b>
 
-1. Open <code>/settings</code> and connect a bot or user account.
-2. Add at least one destination chat. The connected account must be able to post there.
-3. Configure optional filters, captions, and forwarding rules.
-4. Run <code>/forward</code> and follow the prompts to select a source and destination.
+1. Connect an account in <code>/settings</code>.
+2. Add a destination and make sure the account can post there.
+3. Run <code>/forward</code> and choose a source.
 
-Use <code>/cancel</code> during setup to leave the current step. A connected user account carries its own security and account risk; only connect an account you control."""
+Use <code>/cancel</code> to stop setup. Connect only accounts you control."""
 
     FROM_MSG = (
         "<b>Choose a source chat</b>\n\n"
@@ -99,12 +93,8 @@ Use <code>/cancel</code> during setup to leave the current step. A connected use
 <b>Account:</b> <code>{botname} (@{botuname})</code>
 <b>Source:</b> <code>{from_chat}</code>
 <b>Destination:</b> <code>{to_chat}</code>
-<b>Messages to skip:</b> <code>{skip}</code>
+<b>Skip:</b> <code>{skip}</code>
 
-Before continuing, confirm the connected account can read from the source and post to the destination. Private chats require membership or the appropriate admin permissions."""
+Make sure the account can access both chats."""
 
-    SETTINGS_TXT = (
-        "<b>Settings</b>\n\n"
-        "Choose an option below to configure your connected accounts, chats, "
-        "and forwarding preferences."
-    )
+    SETTINGS_TXT = "<b>Settings</b>\n\nManage accounts, chats, and forwarding options."

@@ -114,10 +114,8 @@ async def settings_query(bot, query):
      answer = await prompt_for_input(
          bot,
          user_id,
-         "<b>Enter a delay range in seconds.</b>\n"
-         "Examples: <code>5-15</code> for a random delay, or <code>8</code> for a fixed delay.\n"
-         "Use <code>0-0</code> to disable. Maximum allowed: 3600 seconds.\n"
-         "Send <code>/cancel</code> to stop.",
+         "<b>Enter delay in seconds:</b> <code>5-15</code> random, <code>8</code> fixed, <code>0-0</code> off.\n"
+         "Maximum: 3600. Send <code>/cancel</code> to stop.",
      )
      if not answer.text or answer.text.strip().lower() == "/cancel":
          return await answer.reply_text("<b>Gap setup cancelled.</b>")
@@ -427,9 +425,9 @@ async def settings_query(bot, query):
         forwarded = await prompt_for_input(
             bot,
             user_id,
-            "<b>Change destination channel</b>\n\n"
-            "Forward a message from the new group or channel where your connected account can post.\n"
-            "Send <code>/cancel</code> to keep the current destination.",
+            "<b>Change destination</b>\n\n"
+            "Forward a message from the new chat. Your account must be able to post there.\n"
+            "Send <code>/cancel</code> to keep the current one.",
             filters=filters.all,
             timeout=600,
         )
@@ -880,8 +878,7 @@ def quick_settings_dashboard(config, continue_task_id=None):
         keyboard.append([InlineKeyboardButton("🏠 Main menu", callback_data="home")])
     text = (
         "<b>⚡ Quick settings</b>\n\n"
-        "Choose a preset to quickly replace the message-type selection. "
-        "You can fine-tune each type from the main settings screen.\n\n"
+        "Choose a preset or adjust message types in Settings.\n\n"
         f"<b>Currently included:</b> {', '.join(selected_types) or 'None'}"
     )
     return text, InlineKeyboardMarkup(keyboard)

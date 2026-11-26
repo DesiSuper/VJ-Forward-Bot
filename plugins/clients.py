@@ -23,7 +23,7 @@ from .prompts import ask as prompt_for_input
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-BOT_TOKEN_TEXT = "<b>Connect a Telegram bot</b>\n\nCreate a bot with @BotFather, then forward its token message here. Your token is stored for your account only. Send <code>/cancel</code> to stop."
+BOT_TOKEN_TEXT = "<b>Connect a Telegram bot</b>\n\nCreate one with @BotFather, then forward its token here. It is stored securely for your account. Send <code>/cancel</code> to stop."
 class CLIENT:
   def __init__(self):
      self.api_id = Config.API_ID
@@ -78,8 +78,8 @@ class CLIENT:
      await bot.send_message(
          user_id,
          "<b>⚠️ Connect a personal account</b>\n\n"
-         "A user account can access private chats, but automating personal accounts may carry account restrictions. "
-         "Only continue with an account you own. OTP and password are used only to sign in; a reusable session credential is then saved in this bot's database.",
+         "Automation may lead to account restrictions. Connect only your own account. "
+         "Sign-in details create an encrypted session stored by the bot.",
      )
      try:
         phone_prompt = await prompt_for_input(bot,

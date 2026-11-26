@@ -346,9 +346,8 @@ async def begin_forward(
                 endpoint_message = await prompt_for_input(
                     bot,
                     message.chat.id,
-                    "<b>Source channel selected.</b> I could not fetch its latest message automatically. "
-                    "Forward any recent message from this saved channel to continue.\n"
-                    "Send <code>/cancel</code> to stop.",
+                    "<b>Source selected.</b> Could not fetch its latest message. "
+                    "Forward a recent message to continue or send <code>/cancel</code>.",
                     filters=filters.all,
                     timeout=600,
                     delete_prompt_and_reply=True,
