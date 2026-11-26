@@ -218,6 +218,7 @@ def _blacklist_help() -> str:
         "<code>/blacklist word add bad phrase</code>\n"
         "<code>/blacklist url add instagram.com</code>\n"
         "<code>/dlink instagram.com/* 30s</code> (add/update with a delay)\n"
+        "<code>/dlink list</code> (view domain-link rules)\n"
         "The configured domain link is checked for everyone, including group admins "
         "and the bot owner. A domain blocks all its paths and subdomains; for example, "
         "<code>instagram.com</code> also matches <code>instagram.com/reel/…</code> "
@@ -390,6 +391,21 @@ async def add_delayed_domain_link(client, message):
             "Usage: <code>/dlink instagram.com/* 30s</code>\n"
             "The rule applies to all matching group members' messages."
         )
+    if payload[1].strip().lower() == "list":
+        entries = (await _get_global_blacklist(refresh=True))["urls"]
+        lines = [f"<b>Global domain-link rules ({len(entries)}):</b>"]
+        if entries:
+            lines.extend(
+                f"• <code>{escape(_entry_value(entry))}</code> — "
+                f"{'immediate' if _entry_delay(entry) == 0 else f'after {_format_delay(_entry_delay(entry))}'}"
+                for entry in entries[:50]
+            )
+            if len(entries) > 50:
+                lines.append(f"• and {len(entries) - 50} more")
+        else:
+            lines.append("• None")
+        return await message.reply_text("\n".join(lines))
+
     match = re.fullmatch(
         r"(.+?)\s+(\d+\s*(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes))",
         payload[1].strip(),

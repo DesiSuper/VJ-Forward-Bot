@@ -86,6 +86,7 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
         help_text = message.reply_text.await_args.args[0]
         self.assertIn("/blacklist url add instagram.com", help_text)
         self.assertIn("/dlink instagram.com/* 30s", help_text)
+        self.assertIn("/dlink list", help_text)
         self.assertIn("including group admins", help_text)
         self.assertIn("/blacklistdelay url instagram.com 2m", help_text)
         self.assertIn("does not expire the blacklist entry", help_text)
@@ -199,6 +200,31 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "private chat with the bot", message.reply_text.await_args.args[0]
         )
+
+    async def test_dlink_list_shows_saved_domain_rules(self):
+        message = SimpleNamespace(
+            text="/dlink list",
+            from_user=SimpleNamespace(id=123),
+            chat=SimpleNamespace(id=123, type="private"),
+            reply_text=AsyncMock(),
+        )
+        with (
+            patch("plugins.group_moderation.Config.BOT_OWNER", 123),
+            patch(
+                "plugins.group_moderation._get_global_blacklist",
+                new=AsyncMock(
+                    return_value={
+                        "words": [],
+                        "urls": [{"value": "instagram.com", "delay_seconds": 30}],
+                    }
+                ),
+            ),
+        ):
+            await add_delayed_domain_link(object(), message)
+
+        reply = message.reply_text.await_args.args[0]
+        self.assertIn("instagram.com", reply)
+        self.assertIn("after 30s", reply)
 
     async def test_dlink_adds_wildcard_domain_with_delay_for_all_groups(self):
         message = SimpleNamespace(
