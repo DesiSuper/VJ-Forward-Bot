@@ -21,9 +21,6 @@ async def block_banned_messages(client, message):
         )
         raise StopPropagation
     if int(user.id) != int(Config.BOT_OWNER):
-        await message.reply_text(
-            "<b>This forwarding bot is for the configured bot admin only.</b>"
-        )
         raise StopPropagation
 
 
@@ -37,8 +34,5 @@ async def block_banned_callbacks(client, query):
         await query.answer("Access to this bot is restricted.", show_alert=True)
         raise StopPropagation
     if int(user.id) != int(Config.BOT_OWNER):
-        await query.answer(
-            "This forwarding bot is for the configured bot admin only.",
-            show_alert=True,
-        )
+        await query.answer()
         raise StopPropagation
