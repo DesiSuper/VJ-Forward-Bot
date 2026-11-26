@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from main import notify_bot_owner_started, startup_notification_text
+from pyrogram.errors import PeerIdInvalid
 
 
 class StartupNotificationTests(unittest.IsolatedAsyncioTestCase):
@@ -50,6 +51,26 @@ class StartupNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [call.args[0] for call in client.send_message.await_args_list], [123, 456]
         )
+
+    async def test_admins_who_never_started_bot_are_skipped_without_warning(self):
+        client = SimpleNamespace(
+            send_message=AsyncMock(
+                side_effect=[PeerIdInvalid(), None]
+            )
+        )
+        with (
+            patch("main.Config.BOT_OWNER", 123),
+            patch("main.Config.BOT_OWNERS", (123, 456)),
+            patch("main.LOGGER.warning") as warning,
+        ):
+            await notify_bot_owner_started(
+                client, SimpleNamespace(first_name="Forward Bot", username=None)
+            )
+
+        self.assertEqual(
+            [call.args[0] for call in client.send_message.await_args_list], [123, 456]
+        )
+        warning.assert_not_called()
 
     async def test_notification_delivery_failure_does_not_abort_startup(self):
         client = SimpleNamespace(

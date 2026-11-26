@@ -10,6 +10,7 @@ from datetime import datetime
 from html import escape
 
 from pyrogram import Client, idle
+from pyrogram.errors import PeerIdInvalid
 
 try:
     import uvloop
@@ -59,6 +60,9 @@ async def notify_bot_owner_started(client, bot_info) -> None:
                 owner_id,
                 startup_notification_text(bot_info),
             )
+        except PeerIdInvalid:
+            # Telegram doesn't let bots DM users until they open the bot first.
+            continue
         except Exception:
             LOGGER.warning(
                 "Bot is running, but startup notification could not be delivered "
