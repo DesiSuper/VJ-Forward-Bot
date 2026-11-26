@@ -10,7 +10,6 @@ from datetime import datetime
 from html import escape
 
 from pyrogram import Client, idle
-from pyrogram.types import InlineKeyboardMarkup
 
 try:
     import uvloop
@@ -20,7 +19,6 @@ except ImportError:  # Optional on platforms without uvloop wheels.
 from config import Config
 from database import db
 from plugins.forwarding import cancel_pending_forwards, restart_forwards
-from plugins.ui import InlineKeyboardButton
 
 LOGGER = logging.getLogger("forword_bot")
 
@@ -55,20 +53,11 @@ def startup_notification_text(bot_info, started_at: datetime | None = None) -> s
 
 async def notify_bot_owner_started(client, bot_info) -> None:
     """Send the owner a startup card; notification failures must not stop the bot."""
-    keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("📊 Admin dashboard", callback_data="dashboard"),
-                InlineKeyboardButton("📖 Help", callback_data="help"),
-            ]
-        ]
-    )
     for owner_id in Config.bot_owner_ids():
         try:
             await client.send_message(
                 owner_id,
                 startup_notification_text(bot_info),
-                reply_markup=keyboard,
             )
         except Exception:
             LOGGER.warning(

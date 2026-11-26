@@ -20,7 +20,7 @@ class StartupNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("10:09:05 AM", text)
         self.assertIn("UTC", text)
 
-    async def test_startup_notification_goes_to_bot_owner_with_dashboard_buttons(self):
+    async def test_startup_notification_has_no_buttons(self):
         client = SimpleNamespace(send_message=AsyncMock())
         with (
             patch("main.Config.BOT_OWNER", 123),
@@ -35,10 +35,7 @@ class StartupNotificationTests(unittest.IsolatedAsyncioTestCase):
         args = client.send_message.await_args
         self.assertEqual(args.args[0], 123)
         self.assertIn("Forward Bot Started", args.args[1])
-        buttons = args.kwargs["reply_markup"].inline_keyboard[0]
-        self.assertEqual(
-            [button.callback_data for button in buttons], ["dashboard", "help"]
-        )
+        self.assertNotIn("reply_markup", args.kwargs)
 
     async def test_startup_notification_is_sent_to_every_configured_admin(self):
         client = SimpleNamespace(send_message=AsyncMock())
