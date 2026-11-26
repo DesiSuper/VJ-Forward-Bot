@@ -58,7 +58,10 @@ def normalize_blacklisted_url(value: str) -> str:
         raise ValueError("Enter a valid domain or http/https URL.")
     if host.startswith("www."):
         host = host[4:]
-    path = parsed.path.rstrip("/")
+    path = parsed.path
+    if path.endswith("/*"):
+        path = path[:-2]
+    path = path.rstrip("/")
     if path == "/":
         path = ""
     return host + path
@@ -214,7 +217,9 @@ def _blacklist_help() -> str:
         "<b>Add entries</b>\n"
         "<code>/blacklist word add bad phrase</code>\n"
         "<code>/blacklist url add instagram.com</code>\n"
-        "A domain blocks all its paths and subdomains; for example, "
+        "<code>/dlink instagram.com/* 30s</code> (add/update with a delay)\n"
+        "The configured domain link is checked for everyone, including group admins "
+        "and the bot owner. A domain blocks all its paths and subdomains; for example, "
         "<code>instagram.com</code> also matches <code>instagram.com/reel/…</code> "
         "and <code>www.instagram.com</code>. No <code>/*</code> is needed.\n\n"
         "<b>Set per-entry delete delay</b>\n"
@@ -371,6 +376,52 @@ async def set_global_blacklist_delay(client, message):
     )
 
 
+@Client.on_message(filters.private & filters.command("dlink"))
+async def add_delayed_domain_link(client, message):
+    """Add a domain/path link rule with a configured delete delay."""
+    if not _is_bot_owner_in_private(message):
+        return await message.reply_text(
+            "Only the bot owner can add domain link rules in a private chat with the bot."
+        )
+
+    payload = (message.text or "").split(maxsplit=1)
+    if len(payload) < 2:
+        return await message.reply_text(
+            "Usage: <code>/dlink instagram.com/* 30s</code>\n"
+            "The rule applies to all matching group members' messages."
+        )
+    match = re.fullmatch(
+        r"(.+?)\s+(\d+\s*(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes))",
+        payload[1].strip(),
+        re.I,
+    )
+    if match is None:
+        return await message.reply_text(
+            "Add a delay in seconds or minutes, e.g. <code>/dlink instagram.com/* 30s</code>."
+        )
+    try:
+        domain_pattern = normalize_blacklisted_url(match.group(1).strip())
+        delay_seconds = parse_delay(match.group(2))
+    except ValueError as error:
+        return await message.reply_text(str(error))
+
+    try:
+        await db.add_global_blacklist_entry("url", domain_pattern, delay_seconds)
+    except Exception:
+        logger.exception("Could not add a delayed domain-link rule")
+        return await message.reply_text(
+            "Could not add the domain link rule right now. Please try again."
+        )
+    _invalidate_blacklist_cache()
+    delay_text = (
+        "immediately" if delay_seconds == 0 else f"after {_format_delay(delay_seconds)}"
+    )
+    return await message.reply_text(
+        f"<b>✓ Domain link rule saved for all groups; matching messages from everyone "
+        f"will be deleted {delay_text}.</b>\n<code>{escape(domain_pattern)}</code>"
+    )
+
+
 async def _delete_message_after(message, delay_seconds: int) -> None:
     """Delete a matching message after its rule's delay elapses."""
     try:
@@ -393,8 +444,6 @@ async def _delete_message_after(message, delay_seconds: int) -> None:
 @Client.on_message(filters.group & (filters.text | filters.caption), group=-1)
 async def enforce_global_blacklist(client, message):
     """Silently delete group messages containing a blacklisted word or URL."""
-    if message.from_user is not None and message.from_user.is_bot:
-        return
     text = message.text or message.caption or ""
     if not text or text.lstrip().startswith("/"):
         return

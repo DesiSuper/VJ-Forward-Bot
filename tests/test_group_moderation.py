@@ -7,6 +7,7 @@ from pyrogram import StopPropagation
 
 from plugins.group_moderation import (
     _delete_message_after,
+    add_delayed_domain_link,
     _extract_urls,
     enforce_global_blacklist,
     group_help,
@@ -28,6 +29,10 @@ class GroupBlacklistMatchingTests(unittest.TestCase):
 
     def test_url_entries_normalize_domains_and_url_paths(self):
         self.assertEqual(normalize_blacklisted_url("WWW.Spam.Example/"), "spam.example")
+        self.assertEqual(normalize_blacklisted_url("instagram.com/*"), "instagram.com")
+        self.assertEqual(
+            normalize_blacklisted_url("instagram.com/reel/*"), "instagram.com/reel"
+        )
         self.assertEqual(
             normalize_blacklisted_url("https://spam.example/path/?utm=x"),
             "spam.example/path",
@@ -80,13 +85,15 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         help_text = message.reply_text.await_args.args[0]
         self.assertIn("/blacklist url add instagram.com", help_text)
+        self.assertIn("/dlink instagram.com/* 30s", help_text)
+        self.assertIn("including group admins", help_text)
         self.assertIn("/blacklistdelay url instagram.com 2m", help_text)
         self.assertIn("does not expire the blacklist entry", help_text)
         self.assertIn("/blacklist list", help_text)
 
-    async def test_blacklisted_group_message_is_deleted_silently(self):
+    async def test_blacklisted_messages_from_all_senders_are_deleted(self):
         message = SimpleNamespace(
-            from_user=SimpleNamespace(is_bot=False),
+            from_user=SimpleNamespace(is_bot=True),
             text="This has a blocked phrase in it",
             caption=None,
             chat=SimpleNamespace(id=-10099),
@@ -189,7 +196,28 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
             await manage_global_blacklist(object(), message)
 
         add.assert_not_awaited()
-        self.assertIn("private chat with the bot", message.reply_text.await_args.args[0])
+        self.assertIn(
+            "private chat with the bot", message.reply_text.await_args.args[0]
+        )
+
+    async def test_dlink_adds_wildcard_domain_with_delay_for_all_groups(self):
+        message = SimpleNamespace(
+            text="/dlink instagram.com/* 30s",
+            from_user=SimpleNamespace(id=123),
+            chat=SimpleNamespace(id=123, type="private"),
+            reply_text=AsyncMock(),
+        )
+        with (
+            patch("plugins.group_moderation.Config.BOT_OWNER", 123),
+            patch(
+                "plugins.group_moderation.db.add_global_blacklist_entry",
+                new=AsyncMock(),
+            ) as add,
+        ):
+            await add_delayed_domain_link(object(), message)
+
+        add.assert_awaited_once_with("url", "instagram.com", 30)
+        self.assertIn("from everyone", message.reply_text.await_args.args[0])
 
     async def test_dedicated_command_sets_delay_only_for_bot_owner_in_private(self):
         message = SimpleNamespace(
