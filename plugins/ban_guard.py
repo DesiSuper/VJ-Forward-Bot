@@ -1,10 +1,10 @@
-"""Enforce persisted user bans before other private-chat handlers run."""
+"""Restrict private bot interactions and callbacks to the configured owner."""
 
 from html import escape
 
 from pyrogram import Client, StopPropagation, filters
 
-from config import temp
+from config import Config, temp
 from database import db
 
 
@@ -14,13 +14,17 @@ async def block_banned_messages(client, message):
     if user is None:
         return
     status = await db.get_ban_status(user.id)
-    if not status.get("is_banned") and user.id not in temp.BANNED_USERS:
-        return
-    reason = status.get("ban_reason") or "No reason provided"
-    await message.reply_text(
-        f"<b>Access to this bot is restricted.</b>\n{escape(str(reason))}"
-    )
-    raise StopPropagation
+    if status.get("is_banned") or user.id in temp.BANNED_USERS:
+        reason = status.get("ban_reason") or "No reason provided"
+        await message.reply_text(
+            f"<b>Access to this bot is restricted.</b>\n{escape(str(reason))}"
+        )
+        raise StopPropagation
+    if int(user.id) != int(Config.BOT_OWNER):
+        await message.reply_text(
+            "<b>This forwarding bot is for the configured bot admin only.</b>"
+        )
+        raise StopPropagation
 
 
 @Client.on_callback_query(group=-2)
@@ -29,7 +33,12 @@ async def block_banned_callbacks(client, query):
     if user is None:
         return
     status = await db.get_ban_status(user.id)
-    if not status.get("is_banned") and user.id not in temp.BANNED_USERS:
-        return
-    await query.answer("Access to this bot is restricted.", show_alert=True)
-    raise StopPropagation
+    if status.get("is_banned") or user.id in temp.BANNED_USERS:
+        await query.answer("Access to this bot is restricted.", show_alert=True)
+        raise StopPropagation
+    if int(user.id) != int(Config.BOT_OWNER):
+        await query.answer(
+            "This forwarding bot is for the configured bot admin only.",
+            show_alert=True,
+        )
+        raise StopPropagation
