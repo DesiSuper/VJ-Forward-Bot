@@ -5,6 +5,15 @@ from database import Db
 
 
 class DatabaseFilterEnforcementTests(unittest.IsolatedAsyncioTestCase):
+    async def test_database_close_awaits_native_async_mongo_client(self):
+        database = Db("", "")
+        database._client = type("Client", (), {})()
+        database._client.close = AsyncMock()
+
+        await database.close()
+
+        database._client.close.assert_awaited_once_with()
+
     async def test_instagram_preference_defaults_on_and_persists_per_user(self):
         database = Db("", "")
         database._require_database = lambda: None

@@ -1,18 +1,17 @@
-
-import motor.motor_asyncio
+from pymongo import AsyncMongoClient
 
 
 class MongoDB:
     def __init__(self, uri, db_name, collection):
         self.uri = uri
         self.db_name = db_name
-        self.collection = collection 
+        self.collection = collection
         self.client = None
         self.db = None
         self.files = None
 
     async def connect(self):
-        self.client = motor.motor_asyncio.AsyncIOMotorClient(
+        self.client = AsyncMongoClient(
             self.uri,
             serverSelectionTimeoutMS=5_000,
             connectTimeoutMS=5_000,
@@ -24,7 +23,7 @@ class MongoDB:
 
     async def close(self):
         if self.client:
-            self.client.close()
+            await self.client.close()
 
     async def add_file(self, file_unique_id):
         return await self.files.update_one(
@@ -34,13 +33,15 @@ class MongoDB:
         )
 
     async def is_file_exit(self, file_unique_id):
-        existing = await self.files.find_one({"file_unique_id": file_unique_id}, {"_id": 1})
+        existing = await self.files.find_one(
+            {"file_unique_id": file_unique_id}, {"_id": 1}
+        )
         return existing is not None
 
     async def get_all_files(self):
-        """Return Motor's async cursor, including legacy file_id-only entries."""
+        """Return the native PyMongo async cursor, including legacy file_id-only entries."""
         return self.files.find({})
-        
+
 
 async def connect_user_db(user_id, uri, chat):
     chat = f"{user_id}{chat}"

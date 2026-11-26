@@ -15,7 +15,7 @@ class OptionalMongoDBTests(unittest.IsolatedAsyncioTestCase):
         client = MagicMock()
         client.__getitem__.return_value = database
         client.admin = admin
-        with patch("plugins.db.motor.motor_asyncio.AsyncIOMotorClient", return_value=client):
+        with patch("plugins.db.AsyncMongoClient", return_value=client):
             mongo = MongoDB("mongodb://host", "db", "collection")
             await mongo.connect()
 
@@ -24,6 +24,14 @@ class OptionalMongoDBTests(unittest.IsolatedAsyncioTestCase):
             "file_unique_id", unique=True, sparse=True
         )
         collection.drop.assert_not_called()
+
+    async def test_close_awaits_native_async_client_close(self):
+        mongo = MongoDB("mongodb://host", "db", "collection")
+        mongo.client = SimpleNamespace(close=AsyncMock())
+
+        await mongo.close()
+
+        mongo.client.close.assert_awaited_once_with()
 
     async def test_failed_optional_connection_closes_client_and_returns_failure(self):
         mongo = MongoDB("mongodb://host", "db", "collection")

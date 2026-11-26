@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-import motor.motor_asyncio
+from pymongo import AsyncMongoClient
 
 from config import Config
 from secret_store import decrypt_secret, encrypt_secret, is_encrypted
@@ -67,7 +67,7 @@ class Db:
     def __init__(self, uri: str, database_name: str) -> None:
         self.uri = uri
         self.database_name = database_name
-        self._client: motor.motor_asyncio.AsyncIOMotorClient | None = None
+        self._client: AsyncMongoClient | None = None
         self.db = None
         self.bot = self.userbot = self.col = self.nfy = self.chl = self.moderation = (
             self.preferences
@@ -76,7 +76,7 @@ class Db:
             self._open_client()
 
     def _open_client(self) -> None:
-        self._client = motor.motor_asyncio.AsyncIOMotorClient(
+        self._client = AsyncMongoClient(
             self.uri,
             serverSelectionTimeoutMS=10_000,
             connectTimeoutMS=10_000,
@@ -129,7 +129,7 @@ class Db:
 
     async def close(self) -> None:
         if self._client is not None:
-            self._client.close()
+            await self._client.close()
 
     @staticmethod
     def new_user(user_id: int, name: str) -> dict[str, Any]:

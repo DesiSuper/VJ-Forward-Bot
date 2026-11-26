@@ -1,6 +1,6 @@
 """Global word and URL blacklist moderation for groups.
 
-Group administrators manage the shared blacklist with /blacklist commands. Any
+The configured bot owner manages the shared blacklist in private chat. Any
 matching group message is deleted silently; no user warning is sent.
 """
 
