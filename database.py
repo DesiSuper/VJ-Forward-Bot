@@ -69,7 +69,9 @@ class Db:
         self.database_name = database_name
         self._client: motor.motor_asyncio.AsyncIOMotorClient | None = None
         self.db = None
-        self.bot = self.userbot = self.col = self.nfy = self.chl = self.moderation = None
+        self.bot = self.userbot = self.col = self.nfy = self.chl = self.moderation = (
+            self.preferences
+        ) = None
         if uri:
             self._open_client()
 
@@ -86,6 +88,7 @@ class Db:
         self.nfy = self.db.notify
         self.chl = self.db.channels
         self.moderation = self.db.moderation
+        self.preferences = self.db.preferences
 
     def _require_database(self) -> None:
         if self._client is None:
@@ -156,6 +159,23 @@ class Db:
         self._require_database()
         user = await self.col.find_one({"id": int(id)}, {"ban_status": 1})
         return (user or {}).get("ban_status", {"is_banned": False, "ban_reason": ""})
+
+    async def get_instagram_enabled(self, user_id: int) -> bool:
+        """Return a user's persistent Instagram downloader preference (on by default)."""
+        self._require_database()
+        setting = await self.preferences.find_one(
+            {"_id": f"instagram:{int(user_id)}"}, {"enabled": 1}
+        )
+        return bool((setting or {}).get("enabled", True))
+
+    async def set_instagram_enabled(self, user_id: int, enabled: bool) -> None:
+        """Persist whether this user wants Instagram downloads enabled."""
+        self._require_database()
+        await self.preferences.update_one(
+            {"_id": f"instagram:{int(user_id)}"},
+            {"$set": {"enabled": bool(enabled)}},
+            upsert=True,
+        )
 
     @staticmethod
     def _blacklist_field(kind: str) -> str:
@@ -317,9 +337,12 @@ class Db:
 
     async def in_channel(self, user_id: int, chat_id: int) -> bool:
         self._require_database()
-        return await self.chl.find_one(
-            {"user_id": int(user_id), "chat_id": int(chat_id)}, {"_id": 1}
-        ) is not None
+        return (
+            await self.chl.find_one(
+                {"user_id": int(user_id), "chat_id": int(chat_id)}, {"_id": 1}
+            )
+            is not None
+        )
 
     async def add_channel(
         self, user_id: int, chat_id: int, title: str, username: str | None
@@ -328,7 +351,12 @@ class Db:
         if await self.in_channel(user_id, chat_id):
             return False
         return await self.chl.insert_one(
-            {"user_id": int(user_id), "chat_id": int(chat_id), "title": title, "username": username}
+            {
+                "user_id": int(user_id),
+                "chat_id": int(chat_id),
+                "title": title,
+                "username": username,
+            }
         )
 
     async def update_channel(
@@ -367,12 +395,16 @@ class Db:
 
     async def get_filters(self, user_id: int) -> list[str]:
         configs = await self.get_configs(user_id)
-        return [name for name, enabled in configs.get("filters", {}).items() if not enabled]
+        return [
+            name for name, enabled in configs.get("filters", {}).items() if not enabled
+        ]
 
     async def add_frwd(self, user_id: int):
         self._require_database()
         await self.nfy.update_one(
-            {"user_id": int(user_id)}, {"$setOnInsert": {"user_id": int(user_id)}}, upsert=True
+            {"user_id": int(user_id)},
+            {"$setOnInsert": {"user_id": int(user_id)}},
+            upsert=True,
         )
 
     async def rmve_frwd(self, user_id: int = 0, all: bool = False):

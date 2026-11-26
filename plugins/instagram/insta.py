@@ -17,11 +17,20 @@ from urllib.parse import urlsplit
 
 from pyrogram import Client, filters
 
+from config import Config
+from database import db
+
 logger = logging.getLogger(__name__)
 _MAX_DOWNLOAD_BYTES = 45 * 1024 * 1024
 _MAX_PHOTO_BYTES = 10 * 1024 * 1024
 _DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
-_INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com", "instagr.am", "www.instagr.am"}
+_INSTAGRAM_HOSTS = {
+    "instagram.com",
+    "www.instagram.com",
+    "m.instagram.com",
+    "instagr.am",
+    "www.instagr.am",
+}
 _INSTAGRAM_LINK_PATTERN = re.compile(
     r"(?<![\w.-])(?:https?://)?(?:(?:www|m)\.)?(?:instagram\.com|instagr\.am)/[^\s<>()]+",
     re.IGNORECASE,
@@ -101,11 +110,15 @@ def download_instagram_media(url: str, output_dir: str) -> tuple[str, str]:
         with YoutubeDL(options) as downloader:
             info = downloader.extract_info(url, download=True)
             if not info:
-                raise InstagramDownloadError("No downloadable media was found at that link.")
+                raise InstagramDownloadError(
+                    "No downloadable media was found at that link."
+                )
             if info.get("entries"):
                 info = next((entry for entry in info["entries"] if entry), None)
             if not info:
-                raise InstagramDownloadError("No downloadable media was found at that link.")
+                raise InstagramDownloadError(
+                    "No downloadable media was found at that link."
+                )
 
             candidates = []
             for key in ("filepath", "_filename"):
@@ -121,9 +134,13 @@ def download_instagram_media(url: str, output_dir: str) -> tuple[str, str]:
 
             media_path = next((path for path in candidates if path.is_file()), None)
             if media_path is None:
-                raise InstagramDownloadError("Instagram did not provide a downloadable media file.")
+                raise InstagramDownloadError(
+                    "Instagram did not provide a downloadable media file."
+                )
             if media_path.stat().st_size > _MAX_DOWNLOAD_BYTES:
-                raise InstagramDownloadError("The media is too large to send through Telegram (limit: 45 MB).")
+                raise InstagramDownloadError(
+                    "The media is too large to send through Telegram (limit: 45 MB)."
+                )
 
             title = str(info.get("title") or "Instagram media").strip()
             duration = max(0, int(float(info.get("duration") or 0)))
@@ -141,15 +158,44 @@ def download_instagram_media(url: str, output_dir: str) -> tuple[str, str]:
         ) from error
 
 
+@Client.on_message(filters.private & filters.command("insta"))
+async def instagram_toggle_command(client, message):
+    """Let the configured bot owner toggle their private Instagram downloader."""
+    user = getattr(message, "from_user", None)
+    if user is None or int(user.id) != int(Config.BOT_OWNER):
+        return
+
+    parts = (message.text or "").split(maxsplit=1)
+    action = parts[1].strip().lower() if len(parts) > 1 else "status"
+    if action == "status":
+        enabled = await db.get_instagram_enabled(user.id)
+        state = "ON" if enabled else "OFF"
+        return await message.reply_text(
+            f"Instagram downloads are <b>{state}</b> for you."
+        )
+    if action not in {"on", "off"}:
+        return await message.reply_text(
+            "Usage: <code>/insta on</code> or <code>/insta off</code>"
+        )
+
+    enabled = action == "on"
+    await db.set_instagram_enabled(user.id, enabled)
+    state = "ON" if enabled else "OFF"
+    return await message.reply_text(f"Instagram downloads are <b>{state}</b> for you.")
+
+
 @Client.on_message(
-    filters.private
-    & filters.text
-    & filters.regex(_INSTAGRAM_LINK_PATTERN)
+    filters.private & filters.text & filters.regex(_INSTAGRAM_LINK_PATTERN)
 )
 async def instagram_link_handler(client, message):
     """Download public Instagram media when a user sends an Instagram URL."""
     url_match = _INSTAGRAM_LINK_PATTERN.search(message.text or "")
     if not url_match:
+        return
+    user = getattr(message, "from_user", None)
+    if user is None or int(user.id) != int(Config.BOT_OWNER):
+        return
+    if not await db.get_instagram_enabled(user.id):
         return
 
     try:
@@ -161,12 +207,19 @@ async def instagram_link_handler(client, message):
     try:
         async with _DOWNLOAD_SEMAPHORE:
             with tempfile.TemporaryDirectory(prefix="instagram-download-") as directory:
-                downloaded = await asyncio.to_thread(download_instagram_media, url, directory)
+                downloaded = await asyncio.to_thread(
+                    download_instagram_media, url, directory
+                )
                 media_path = Path(downloaded.path)
                 caption = escape(downloaded.title)
                 suffix = media_path.suffix.lower()
-                if suffix in _PHOTO_EXTENSIONS and media_path.stat().st_size <= _MAX_PHOTO_BYTES:
-                    await client.send_photo(message.chat.id, str(media_path), caption=caption)
+                if (
+                    suffix in _PHOTO_EXTENSIONS
+                    and media_path.stat().st_size <= _MAX_PHOTO_BYTES
+                ):
+                    await client.send_photo(
+                        message.chat.id, str(media_path), caption=caption
+                    )
                 elif (
                     suffix in _VIDEO_EXTENSIONS
                     and downloaded.duration > 0
@@ -184,13 +237,19 @@ async def instagram_link_handler(client, message):
                         no_sound=False,
                     )
                 else:
-                    await client.send_document(message.chat.id, str(media_path), caption=caption)
+                    await client.send_document(
+                        message.chat.id, str(media_path), caption=caption
+                    )
         await status.delete()
     except InstagramDownloadError as error:
         await status.edit_text(escape(str(error)))
     except Exception:
-        logger.exception("Could not send Instagram media to Telegram user %s", message.from_user.id)
+        logger.exception(
+            "Could not send Instagram media to Telegram user %s", message.from_user.id
+        )
         try:
-            await status.edit_text("Could not send this media. It may exceed Telegram's upload limit.")
+            await status.edit_text(
+                "Could not send this media. It may exceed Telegram's upload limit."
+            )
         except Exception:
             logger.debug("Could not update Instagram download status", exc_info=True)

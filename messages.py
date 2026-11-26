@@ -18,6 +18,7 @@ Use the buttons below to explore features, configure your destinations, or read 
 • <code>/reset</code> — restore your default settings
 • <code>/unequify</code> — find and remove duplicate documents
 • <code>/status</code> — check your setup and active task
+• <code>/insta on|off|status</code> — control Instagram downloads (admin)
 
 <b>Forwarding options</b>
 Saved source channels can be selected, added, or removed during each forwarding setup. Custom captions, random inter-message delays, duplicate handling, message-type filters, and size, extension, or keyword rules are available in settings.

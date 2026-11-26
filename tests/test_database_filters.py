@@ -5,6 +5,26 @@ from database import Db
 
 
 class DatabaseFilterEnforcementTests(unittest.IsolatedAsyncioTestCase):
+    async def test_instagram_preference_defaults_on_and_persists_per_user(self):
+        database = Db("", "")
+        database._require_database = lambda: None
+        database.preferences = type("Collection", (), {})()
+        database.preferences.find_one = AsyncMock(
+            side_effect=[None, {"enabled": False}]
+        )
+        database.preferences.update_one = AsyncMock()
+
+        self.assertTrue(await database.get_instagram_enabled(77))
+        await database.set_instagram_enabled(77, False)
+        self.assertFalse(await database.get_instagram_enabled(77))
+
+        database.preferences.find_one.assert_any_await(
+            {"_id": "instagram:77"}, {"enabled": 1}
+        )
+        database.preferences.update_one.assert_awaited_once_with(
+            {"_id": "instagram:77"}, {"$set": {"enabled": False}}, upsert=True
+        )
+
     async def test_global_blacklist_uses_shared_moderation_document(self):
         database = Db("", "")
         database._require_database = lambda: None
