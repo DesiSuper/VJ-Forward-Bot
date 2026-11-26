@@ -19,6 +19,15 @@ Use the buttons below to explore features, configure your destinations, or read 
 • <code>/unequify</code> — find and remove duplicate documents
 • <code>/status</code> — check your setup and active task
 
+<b>Group moderation · bot admin (PM)</b>
+• <code>/dlink instagram.com/* 30s</code> — add/update a delayed domain rule
+• <code>/dlink list</code> — view domain rules
+• <code>/blacklist word add bad phrase</code> / <code>remove bad phrase</code>
+• <code>/blacklist url add instagram.com</code> / <code>remove instagram.com</code>
+• <code>/blacklistdelay word bad phrase 30s</code> or <code>url instagram.com 2m</code>
+• <code>/blacklist list</code> — view all rules; add <code>word</code> or <code>url</code> to filter
+• <code>/ghelp</code> — command guide
+
 <b>Forwarding options</b>
 Saved source channels can be selected, added, or removed during each forwarding setup. Custom captions, random inter-message delays, duplicate handling, message-type filters, and size, extension, or keyword rules are available in settings.
 

@@ -17,19 +17,39 @@ class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("status", callbacks)
         self.assertIn("dashboard", callbacks)
 
-    async def test_dashboard_shows_saved_bot_destinations_and_sources_without_secrets(self):
+    async def test_dashboard_shows_saved_bot_destinations_and_sources_without_secrets(
+        self,
+    ):
         with (
-            patch("plugins.commands.db.get_bot", new=AsyncMock(return_value={
-                "name": "My Bot", "username": "my_test_bot", "id": 2468, "token": "secret-token"
-            })),
+            patch(
+                "plugins.commands.db.get_bot",
+                new=AsyncMock(
+                    return_value={
+                        "name": "My Bot",
+                        "username": "my_test_bot",
+                        "id": 2468,
+                        "token": "secret-token",
+                    }
+                ),
+            ),
             patch("plugins.commands.db.get_userbot", new=AsyncMock(return_value=None)),
-            patch("plugins.commands.db.get_user_channels", new=AsyncMock(return_value=[
-                {"title": "Destination One", "chat_id": -100111}
-            ])),
-            patch("plugins.commands.db.get_configs", new=AsyncMock(return_value={
-                "sources": [{"title": "Saved Source", "chat_id": -100222}]
-            })),
-            patch("plugins.commands.db.is_forwad_exit", new=AsyncMock(return_value=False)),
+            patch(
+                "plugins.commands.db.get_user_channels",
+                new=AsyncMock(
+                    return_value=[{"title": "Destination One", "chat_id": -100111}]
+                ),
+            ),
+            patch(
+                "plugins.commands.db.get_configs",
+                new=AsyncMock(
+                    return_value={
+                        "sources": [{"title": "Saved Source", "chat_id": -100222}]
+                    }
+                ),
+            ),
+            patch(
+                "plugins.commands.db.is_forwad_exit", new=AsyncMock(return_value=False)
+            ),
         ):
             text = await dashboard_text(1234)
 
@@ -40,7 +60,9 @@ class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Saved Source", text)
         self.assertNotIn("secret-token", text)
 
-    async def test_start_forwarding_replaces_home_message_to_prevent_repeated_taps(self):
+    async def test_start_forwarding_replaces_home_message_to_prevent_repeated_taps(
+        self,
+    ):
         user = SimpleNamespace(id=333, first_name="User")
         message = SimpleNamespace(
             chat=SimpleNamespace(id=333),
@@ -74,6 +96,11 @@ class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
             message=SimpleNamespace(edit_text=AsyncMock()),
         )
         await help_page(None, query)
+        help_text = query.message.edit_text.await_args.args[0]
+        self.assertIn("/dlink instagram.com/* 30s", help_text)
+        self.assertIn("/dlink list", help_text)
+        self.assertIn("/blacklistdelay word bad phrase 30s", help_text)
+        self.assertIn("bot admin (PM)", help_text)
         markup = query.message.edit_text.await_args.kwargs["reply_markup"]
         callbacks = [
             button.callback_data
