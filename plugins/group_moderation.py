@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from pyrogram import Client, StopPropagation, filters
 
+from config import Config
 from database import db
 
 logger = logging.getLogger(__name__)
@@ -193,23 +194,23 @@ def _invalidate_blacklist_cache() -> None:
     _BLACKLIST_CACHE_AT = 0.0
 
 
-async def _is_group_admin(client, message) -> bool:
-    if message.from_user is None:
-        return False
-    try:
-        member = await client.get_chat_member(message.chat.id, message.from_user.id)
-    except Exception:
-        logger.info("Could not verify group admin for blacklist command", exc_info=True)
-        return False
-    status = getattr(member.status, "value", member.status)
-    return str(status).lower() in {"owner", "creator", "administrator"}
+def _is_bot_owner_in_private(message) -> bool:
+    """Only allow the configured bot owner to manage the blacklist in PM."""
+    user = message.from_user
+    chat_type = getattr(message.chat.type, "value", message.chat.type)
+    return (
+        user is not None
+        and int(user.id) == int(Config.BOT_OWNER)
+        and str(chat_type).lower() == "private"
+    )
 
 
 def _blacklist_help() -> str:
     return (
         "<b>📋 Group moderation help</b>\n\n"
-        "The blacklist is shared across all groups. Group admins can manage it; "
-        "matching messages are silently deleted. Entries stay blocked until removed.\n\n"
+        "The blacklist is shared across all groups. Only the bot owner can manage it, "
+        "using the commands in a private chat with the bot. Matching messages are "
+        "silently deleted. Entries stay blocked until removed.\n\n"
         "<b>Add entries</b>\n"
         "<code>/blacklist word add bad phrase</code>\n"
         "<code>/blacklist url add instagram.com</code>\n"
@@ -246,12 +247,12 @@ def _normalize_entry(kind: str, value: str) -> str:
     return normalize_blacklisted_url(value)
 
 
-@Client.on_message(filters.group & filters.command("blacklist"))
+@Client.on_message(filters.private & filters.command("blacklist"))
 async def manage_global_blacklist(client, message):
-    """Let group administrators maintain the shared word/URL blacklist."""
-    if not await _is_group_admin(client, message):
+    """Let only the configured bot owner manage the shared blacklist in PM."""
+    if not _is_bot_owner_in_private(message):
         return await message.reply_text(
-            "Only this group's administrators can manage the blacklist."
+            "Only the bot owner can manage the blacklist in a private chat with the bot."
         )
 
     parts = (message.text or "").split(maxsplit=3)
@@ -312,12 +313,12 @@ async def manage_global_blacklist(client, message):
     )
 
 
-@Client.on_message(filters.group & filters.command("blacklistdelay"))
+@Client.on_message(filters.private & filters.command("blacklistdelay"))
 async def set_global_blacklist_delay(client, message):
-    """Configure the per-entry delay with a dedicated admin command."""
-    if not await _is_group_admin(client, message):
+    """Configure the per-entry delay in PM; only the configured bot owner may do so."""
+    if not _is_bot_owner_in_private(message):
         return await message.reply_text(
-            "Only this group's administrators can manage blacklist delays."
+            "Only the bot owner can manage blacklist delays in a private chat with the bot."
         )
 
     parts = (message.text or "").split(maxsplit=2)

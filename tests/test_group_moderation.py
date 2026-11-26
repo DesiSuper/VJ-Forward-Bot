@@ -153,18 +153,15 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         message.delete.assert_awaited_once()
 
-    async def test_blacklist_admin_command_adds_normalized_global_word(self):
+    async def test_only_bot_owner_can_manage_blacklist_from_private_chat(self):
         message = SimpleNamespace(
             text="/blacklist word add Bad Phrase",
             from_user=SimpleNamespace(id=123),
-            chat=SimpleNamespace(id=-10099),
+            chat=SimpleNamespace(id=123, type="private"),
             reply_text=AsyncMock(),
         )
         with (
-            patch(
-                "plugins.group_moderation._is_group_admin",
-                new=AsyncMock(return_value=True),
-            ),
+            patch("plugins.group_moderation.Config.BOT_OWNER", 123),
             patch(
                 "plugins.group_moderation.db.add_global_blacklist_entry",
                 new=AsyncMock(),
@@ -175,18 +172,34 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
         add.assert_awaited_once_with("word", "bad phrase")
         self.assertIn("all groups", message.reply_text.await_args.args[0])
 
-    async def test_dedicated_command_sets_an_existing_entry_delay(self):
+    async def test_bot_owner_cannot_manage_blacklist_from_a_group(self):
         message = SimpleNamespace(
-            text="/blacklistdelay word bad phrase 45s",
+            text="/blacklist word add badword",
             from_user=SimpleNamespace(id=123),
-            chat=SimpleNamespace(id=-10099),
+            chat=SimpleNamespace(id=-10099, type="supergroup"),
             reply_text=AsyncMock(),
         )
         with (
+            patch("plugins.group_moderation.Config.BOT_OWNER", 123),
             patch(
-                "plugins.group_moderation._is_group_admin",
-                new=AsyncMock(return_value=True),
-            ),
+                "plugins.group_moderation.db.add_global_blacklist_entry",
+                new=AsyncMock(),
+            ) as add,
+        ):
+            await manage_global_blacklist(object(), message)
+
+        add.assert_not_awaited()
+        self.assertIn("private chat with the bot", message.reply_text.await_args.args[0])
+
+    async def test_dedicated_command_sets_delay_only_for_bot_owner_in_private(self):
+        message = SimpleNamespace(
+            text="/blacklistdelay word bad phrase 45s",
+            from_user=SimpleNamespace(id=123),
+            chat=SimpleNamespace(id=123, type="private"),
+            reply_text=AsyncMock(),
+        )
+        with (
+            patch("plugins.group_moderation.Config.BOT_OWNER", 123),
             patch(
                 "plugins.group_moderation.db.set_global_blacklist_entry_delay",
                 new=AsyncMock(return_value=True),
@@ -197,18 +210,15 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
         set_delay.assert_awaited_once_with("word", "bad phrase", 45)
         self.assertIn("after 45s", message.reply_text.await_args.args[0])
 
-    async def test_non_admin_cannot_change_global_blacklist_delay(self):
+    async def test_non_owner_cannot_change_global_blacklist_delay(self):
         message = SimpleNamespace(
             text="/blacklistdelay word bad phrase 1m",
             from_user=SimpleNamespace(id=456),
-            chat=SimpleNamespace(id=-10099),
+            chat=SimpleNamespace(id=456, type="private"),
             reply_text=AsyncMock(),
         )
         with (
-            patch(
-                "plugins.group_moderation._is_group_admin",
-                new=AsyncMock(return_value=False),
-            ),
+            patch("plugins.group_moderation.Config.BOT_OWNER", 123),
             patch(
                 "plugins.group_moderation.db.set_global_blacklist_entry_delay",
                 new=AsyncMock(),
@@ -217,22 +227,17 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
             await set_global_blacklist_delay(object(), message)
 
         set_delay.assert_not_awaited()
-        self.assertIn(
-            "Only this group's administrators", message.reply_text.await_args.args[0]
-        )
+        self.assertIn("Only the bot owner", message.reply_text.await_args.args[0])
 
-    async def test_non_admin_cannot_change_global_blacklist(self):
+    async def test_non_owner_cannot_change_global_blacklist(self):
         message = SimpleNamespace(
             text="/blacklist word add badword",
             from_user=SimpleNamespace(id=456),
-            chat=SimpleNamespace(id=-10099),
+            chat=SimpleNamespace(id=456, type="private"),
             reply_text=AsyncMock(),
         )
         with (
-            patch(
-                "plugins.group_moderation._is_group_admin",
-                new=AsyncMock(return_value=False),
-            ),
+            patch("plugins.group_moderation.Config.BOT_OWNER", 123),
             patch(
                 "plugins.group_moderation.db.add_global_blacklist_entry",
                 new=AsyncMock(),
@@ -241,9 +246,7 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
             await manage_global_blacklist(object(), message)
 
         add.assert_not_awaited()
-        self.assertIn(
-            "Only this group's administrators", message.reply_text.await_args.args[0]
-        )
+        self.assertIn("Only the bot owner", message.reply_text.await_args.args[0])
 
 
 if __name__ == "__main__":
