@@ -91,9 +91,9 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/blacklist url add instagram.com", help_text)
         self.assertIn("/dlink instagram.com/* 30s", help_text)
         self.assertIn("/dlink list", help_text)
-        self.assertIn("including group admins", help_text)
+        self.assertIn("matching messages from everyone", help_text)
         self.assertIn("/blacklistdelay url instagram.com 2m", help_text)
-        self.assertIn("does not expire the blacklist entry", help_text)
+        self.assertIn("Rules are shared across groups", help_text)
         self.assertIn("/blacklist list", help_text)
 
     async def test_ghelp_does_not_reply_in_groups_or_to_non_owner(self):

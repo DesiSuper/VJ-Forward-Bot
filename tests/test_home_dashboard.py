@@ -2,7 +2,13 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from plugins.commands import dashboard_text, help_page, home_keyboard, quick_forward
+from plugins.commands import (
+    dashboard_text,
+    group_moderation_help_page,
+    help_page,
+    home_keyboard,
+    quick_forward,
+)
 
 
 class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
@@ -97,10 +103,7 @@ class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
         )
         await help_page(None, query)
         help_text = query.message.edit_text.await_args.args[0]
-        self.assertIn("/dlink instagram.com/* 30s", help_text)
-        self.assertIn("/dlink list", help_text)
-        self.assertIn("/blacklistdelay word bad phrase 30s", help_text)
-        self.assertIn("bot admin (PM)", help_text)
+        self.assertNotIn("/dlink instagram.com/* 30s", help_text)
         markup = query.message.edit_text.await_args.kwargs["reply_markup"]
         callbacks = [
             button.callback_data
@@ -108,7 +111,28 @@ class HomeDashboardTests(unittest.IsolatedAsyncioTestCase):
             for button in row
             if button.callback_data
         ]
-        self.assertEqual(callbacks, ["home"])
+        self.assertEqual(callbacks, ["group_moderation_help", "home"])
+
+    async def test_group_moderation_help_button_shows_commands_and_navigation(self):
+        query = SimpleNamespace(
+            answer=AsyncMock(),
+            message=SimpleNamespace(edit_text=AsyncMock()),
+        )
+
+        await group_moderation_help_page(None, query)
+
+        help_text = query.message.edit_text.await_args.args[0]
+        self.assertIn("/dlink instagram.com/* 30s", help_text)
+        self.assertIn("/dlink list", help_text)
+        self.assertIn("/blacklist list", help_text)
+        markup = query.message.edit_text.await_args.kwargs["reply_markup"]
+        callbacks = [
+            button.callback_data
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+        self.assertEqual(callbacks, ["help", "home"])
 
 
 if __name__ == "__main__":

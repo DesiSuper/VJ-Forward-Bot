@@ -17,6 +17,7 @@ from pyrogram import Client, StopPropagation, filters
 
 from config import Config
 from database import db
+from messages import Script
 
 logger = logging.getLogger(__name__)
 _CACHE_TTL_SECONDS = 15.0
@@ -209,33 +210,7 @@ def _is_bot_owner_in_private(message) -> bool:
 
 
 def _blacklist_help() -> str:
-    return (
-        "<b>📋 Group moderation help</b>\n\n"
-        "The blacklist is shared across all groups. Only the bot owner can manage it, "
-        "using the commands in a private chat with the bot. Matching messages are "
-        "silently deleted. Entries stay blocked until removed.\n\n"
-        "<b>Add entries</b>\n"
-        "<code>/blacklist word add bad phrase</code>\n"
-        "<code>/blacklist url add instagram.com</code>\n"
-        "<code>/dlink instagram.com/* 30s</code> (add/update with a delay)\n"
-        "<code>/dlink list</code> (view domain-link rules)\n"
-        "The configured domain link is checked for everyone, including group admins "
-        "and the bot owner. A domain blocks all its paths and subdomains; for example, "
-        "<code>instagram.com</code> also matches <code>instagram.com/reel/…</code> "
-        "and <code>www.instagram.com</code>. No <code>/*</code> is needed.\n\n"
-        "<b>Set per-entry delete delay</b>\n"
-        "<code>/blacklistdelay word bad phrase 30s</code>\n"
-        "<code>/blacklistdelay url instagram.com 2m</code>\n"
-        "Use <code>0s</code> for immediate deletion. The delay is how long a "
-        "matching message waits before deletion; it does not expire the blacklist entry.\n\n"
-        "<b>Remove or view entries</b>\n"
-        "<code>/blacklist word remove bad phrase</code>\n"
-        "<code>/blacklist url remove instagram.com</code>\n"
-        "<code>/blacklist list</code> (or <code>/blacklist list word</code> / "
-        "<code>/blacklist list url</code>)\n\n"
-        "Time formats: seconds (<code>30s</code>) or minutes (<code>2m</code>), "
-        "up to 24 hours. The bot needs permission to delete group messages."
-    )
+    return Script.GROUP_HELP_TXT
 
 
 @Client.on_message(filters.private & filters.command("ghelp"))

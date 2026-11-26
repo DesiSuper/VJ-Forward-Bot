@@ -15,11 +15,14 @@ from config import Config
 from database import db
 from messages import Script
 
+
 def home_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("🚀  Start forwarding", callback_data="quick_forward"),
+                InlineKeyboardButton(
+                    "🚀  Start forwarding", callback_data="quick_forward"
+                ),
                 InlineKeyboardButton("📊  My dashboard", callback_data="dashboard"),
             ],
             [
@@ -50,7 +53,9 @@ async def dashboard_text(user_id: int) -> str:
     account_line = "Not connected"
     if account:
         username = account.get("username")
-        account_line = f"{account_kind}: {escape(str(account.get('name') or 'Connected'))}"
+        account_line = (
+            f"{account_kind}: {escape(str(account.get('name') or 'Connected'))}"
+        )
         if username:
             account_line += f" (@{escape(str(username))})"
         if account.get("id") is not None:
@@ -72,19 +77,25 @@ async def dashboard_text(user_id: int) -> str:
     else:
         readiness = "Add a destination channel to continue"
 
-    destinations = "\n".join(
-        f"• {escape(str(channel.get('title') or 'Untitled chat'))} "
-        f"<code>{escape(str(channel.get('chat_id') or ''))}</code>"
-        for channel in channels[:4]
-    ) or "• No destinations added"
+    destinations = (
+        "\n".join(
+            f"• {escape(str(channel.get('title') or 'Untitled chat'))} "
+            f"<code>{escape(str(channel.get('chat_id') or ''))}</code>"
+            for channel in channels[:4]
+        )
+        or "• No destinations added"
+    )
     if len(channels) > 4:
         destinations += f"\n• and {len(channels) - 4} more"
 
-    source_list = "\n".join(
-        f"• {escape(str(source.get('title') or 'Untitled chat'))} "
-        f"<code>{escape(str(source.get('chat_id') or ''))}</code>"
-        for source in sources[:4]
-    ) or "• No sources saved"
+    source_list = (
+        "\n".join(
+            f"• {escape(str(source.get('title') or 'Untitled chat'))} "
+            f"<code>{escape(str(source.get('chat_id') or ''))}</code>"
+            for source in sources[:4]
+        )
+        or "• No sources saved"
+    )
     if len(sources) > 4:
         source_list += f"\n• and {len(sources) - 4} more"
 
@@ -120,7 +131,9 @@ async def user_status(client, message):
     )
 
 
-@Client.on_message(filters.private & filters.command(["restart"]) & filters.user(Config.BOT_OWNER))
+@Client.on_message(
+    filters.private & filters.command(["restart"]) & filters.user(Config.BOT_OWNER)
+)
 async def restart(client, message):
     # Restarts belong to the process manager, not a Telegram shell command.
     await message.reply_text(
@@ -186,7 +199,29 @@ async def help_page(client, query):
     await query.message.edit_text(
         Script.HELP_TXT,
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🏠 Home", callback_data="home")]]
+            [
+                [
+                    InlineKeyboardButton(
+                        "🛡 Group moderation", callback_data="group_moderation_help"
+                    )
+                ],
+                [InlineKeyboardButton("🏠 Home", callback_data="home")],
+            ]
+        ),
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
+
+
+@Client.on_callback_query(filters.regex(r"^group_moderation_help$"))
+async def group_moderation_help_page(client, query):
+    await query.answer()
+    await query.message.edit_text(
+        Script.GROUP_HELP_TXT,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("⬅️ Back to Help", callback_data="help")],
+                [InlineKeyboardButton("🏠 Home", callback_data="home")],
+            ]
         ),
         link_preview_options=LinkPreviewOptions(is_disabled=True),
     )

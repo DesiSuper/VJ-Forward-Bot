@@ -19,19 +19,22 @@ Use the buttons below to explore features, configure your destinations, or read 
 • <code>/unequify</code> — find and remove duplicate documents
 • <code>/status</code> — check your setup and active task
 
-<b>Group moderation · bot admin (PM)</b>
-• <code>/dlink instagram.com/* 30s</code> — add/update a delayed domain rule
-• <code>/dlink list</code> — view domain rules
-• <code>/blacklist word add bad phrase</code> / <code>remove bad phrase</code>
-• <code>/blacklist url add instagram.com</code> / <code>remove instagram.com</code>
-• <code>/blacklistdelay word bad phrase 30s</code> or <code>url instagram.com 2m</code>
-• <code>/blacklist list</code> — view all rules; add <code>word</code> or <code>url</code> to filter
-• <code>/ghelp</code> — command guide
-
 <b>Forwarding options</b>
 Saved source channels can be selected, added, or removed during each forwarding setup. Custom captions, random inter-message delays, duplicate handling, message-type filters, and size, extension, or keyword rules are available in settings.
 
 For private chats, the connected account must have access to the source. The bot or user account needs the required permissions in the destination."""
+
+    GROUP_HELP_TXT = """<b>Group moderation · bot admin PM only</b>
+
+• <code>/dlink instagram.com/* 30s</code> — add/update a link rule
+• <code>/dlink list</code> — view domain-link rules
+• <code>/blacklist word add bad phrase</code> / <code>/blacklist word remove bad phrase</code>
+• <code>/blacklist url add instagram.com</code> / <code>/blacklist url remove instagram.com</code>
+• <code>/blacklistdelay word bad phrase 30s</code> / <code>/blacklistdelay url instagram.com 2m</code>
+• <code>/blacklist list</code>, <code>/blacklist list word</code>, <code>/blacklist list url</code>
+• <code>/ghelp</code> — show this guide
+
+Rules are shared across groups; matching messages from everyone are deleted after the set delay. Use <code>0s</code> for immediate deletion."""
 
     HOW_USE_TXT = """<b>Quick start</b>
 
