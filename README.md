@@ -1,6 +1,6 @@
 # Forword Bot
 
-एक modular Telegram forwarding bot, जिसे long-running worker और HTTP health probe के रूप में deploy किया जा सकता है। मौजूदा forwarding, settings, broadcast और duplicate-cleanup handlers को बनाए रखते हुए startup, configuration, persistence और deployment को व्यवस्थित किया गया है।
+एक modular Telegram forwarding bot, जिसे long-running worker और HTTP health probe के रूप में deploy किया जा सकता है। Forwarding, settings और duplicate-cleanup सुविधाओं के साथ startup, configuration, persistence और deployment को व्यवस्थित किया गया है।
 
 ## मुख्य सुविधाएँ
 
@@ -12,7 +12,7 @@
 - Size, extension और keyword filters
 - हर forwarded message के बीच user-configurable random delay (preset या custom range)
 - Bot restart के बाद pending forwarding को resume करना
-- Settings, status और owner broadcast commands
+- Settings और per-admin status controls
 - Duplicate documents खोजने और साफ़ करने का विकल्प
 - सार्वजनिक Instagram post/reel URL भेजने पर media डाउनलोड करके Telegram में वापस भेजना (अधिकतम 45 MB; private posts/cookies समर्थित नहीं)
 - `/healthz` पर lightweight container health check
@@ -99,7 +99,6 @@ Open `/settings` → **Advanced rules** → **Random forwarding gap** to turn th
 | `/stop` | चल रहा task रोकें |
 | `/reset` | अपनी settings reset करें |
 | `/unequify` | Duplicate media साफ़ करें |
-| `/broadcast` | Owner-only broadcast |
 | `/restart` | Hosting provider के restart निर्देश देखें |
 
 ## सुरक्षा और संचालन
