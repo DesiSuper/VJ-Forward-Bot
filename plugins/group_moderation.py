@@ -238,9 +238,11 @@ def _blacklist_help() -> str:
     )
 
 
-@Client.on_message((filters.group | filters.private) & filters.command("ghelp"))
+@Client.on_message(filters.private & filters.command("ghelp"))
 async def group_help(client, message):
-    """Show group admins and members how group moderation commands work."""
+    """Show group-moderation commands only to the bot owner in private chat."""
+    if not _is_bot_owner_in_private(message):
+        return
     return await message.reply_text(_blacklist_help())
 
 

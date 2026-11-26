@@ -78,10 +78,14 @@ class GroupBlacklistMatchingTests(unittest.TestCase):
 
 
 class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
-    async def test_ghelp_lists_management_and_delay_commands_with_examples(self):
-        message = SimpleNamespace(reply_text=AsyncMock())
-
-        await group_help(object(), message)
+    async def test_ghelp_lists_management_and_delay_commands_in_owner_pm(self):
+        message = SimpleNamespace(
+            from_user=SimpleNamespace(id=123),
+            chat=SimpleNamespace(id=123, type="private"),
+            reply_text=AsyncMock(),
+        )
+        with patch("plugins.group_moderation.Config.BOT_OWNER", 123):
+            await group_help(object(), message)
 
         help_text = message.reply_text.await_args.args[0]
         self.assertIn("/blacklist url add instagram.com", help_text)
@@ -91,6 +95,26 @@ class GroupBlacklistHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/blacklistdelay url instagram.com 2m", help_text)
         self.assertIn("does not expire the blacklist entry", help_text)
         self.assertIn("/blacklist list", help_text)
+
+    async def test_ghelp_does_not_reply_in_groups_or_to_non_owner(self):
+        messages = [
+            SimpleNamespace(
+                from_user=SimpleNamespace(id=123),
+                chat=SimpleNamespace(id=-10099, type="supergroup"),
+                reply_text=AsyncMock(),
+            ),
+            SimpleNamespace(
+                from_user=SimpleNamespace(id=456),
+                chat=SimpleNamespace(id=456, type="private"),
+                reply_text=AsyncMock(),
+            ),
+        ]
+        with patch("plugins.group_moderation.Config.BOT_OWNER", 123):
+            for message in messages:
+                await group_help(object(), message)
+
+        for message in messages:
+            message.reply_text.assert_not_awaited()
 
     async def test_blacklisted_messages_from_all_senders_are_deleted(self):
         message = SimpleNamespace(
