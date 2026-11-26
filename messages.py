@@ -71,22 +71,22 @@ Use <code>/cancel</code> during setup to leave the current step. A connected use
         "<b>Username:</b> @{}"
     )
 
-    TEXT = """<b>Forwarding progress</b>
-
-<b>Fetched</b>       <code>{}</code>
-<b>Forwarded</b>     <code>{}</code>
-<b>Videos</b>        <code>{}</code>
-<b>Images</b>        <code>{}</code>
-<b>Duplicates</b>    <code>{}</code>
-<b>Deleted</b>       <code>{}</code>
-<b>Skipped</b>       <code>{}</code>
-<b>Filtered</b>      <code>{}</code>
-<b>Status</b>        <code>{}</code>
-<b>Progress</b>      <code>{}%</code>
+    TEXT = """🚀 <b>Forwarding progress</b>
+━━━━━━━━━━━━━━━━━━
+📥 <b>Fetched:</b> <code>{}</code>
+📤 <b>Forwarded:</b> <code>{}</code>
+🎥 <b>Videos:</b> <code>{}</code>
+🖼️ <b>Images:</b> <code>{}</code>
+♻️ <b>Duplicates:</b> <code>{}</code>
+🗑 <b>Deleted:</b> <code>{}</code>
+⏭ <b>Skipped:</b> <code>{}</code>
+🔎 <b>Filtered:</b> <code>{}</code>
+⚡ <b>Status:</b> <code>{}</code>
+📊 <b>Progress:</b> <code>{}%</code>
 <code>{}</code>
-<b>ETA</b>           <code>{}</code>
+⏳ <b>ETA:</b> <code>{}</code>
 
-<code>{}</code>"""
+📝 <code>{}</code>"""
 
     DUPLICATE_TEXT = """<b>Duplicate cleanup</b>
 
