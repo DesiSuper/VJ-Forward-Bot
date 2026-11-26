@@ -162,7 +162,7 @@ def download_instagram_media(url: str, output_dir: str) -> tuple[str, str]:
 async def instagram_toggle_command(client, message):
     """Let the configured bot owner toggle their private Instagram downloader."""
     user = getattr(message, "from_user", None)
-    if user is None or int(user.id) != int(Config.BOT_OWNER):
+    if user is None or not Config.is_bot_owner(user.id):
         return
 
     parts = (message.text or "").split(maxsplit=1)
@@ -193,7 +193,7 @@ async def instagram_link_handler(client, message):
     if not url_match:
         return
     user = getattr(message, "from_user", None)
-    if user is None or int(user.id) != int(Config.BOT_OWNER):
+    if user is None or not Config.is_bot_owner(user.id):
         return
     if not await db.get_instagram_enabled(user.id):
         return

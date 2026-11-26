@@ -63,17 +63,20 @@ async def notify_bot_owner_started(client, bot_info) -> None:
             ]
         ]
     )
-    try:
-        await client.send_message(
-            Config.BOT_OWNER,
-            startup_notification_text(bot_info),
-            reply_markup=keyboard,
-        )
-    except Exception:
-        LOGGER.warning(
-            "Bot is running, but startup notification could not be delivered to BOT_OWNER",
-            exc_info=True,
-        )
+    for owner_id in Config.bot_owner_ids():
+        try:
+            await client.send_message(
+                owner_id,
+                startup_notification_text(bot_info),
+                reply_markup=keyboard,
+            )
+        except Exception:
+            LOGGER.warning(
+                "Bot is running, but startup notification could not be delivered "
+                "to bot admin %s",
+                owner_id,
+                exc_info=True,
+            )
 
 
 def create_bot() -> Client:

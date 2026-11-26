@@ -189,7 +189,9 @@ async def reset_settings(bot, m):
    await m.reply("<b>✓ Your settings have been reset.</b>")
 
 
-@Client.on_message(filters.command('resetall') & filters.user(Config.BOT_OWNER))
+@Client.on_message(
+    filters.command('resetall') & filters.user(list(Config.bot_owner_ids()))
+)
 async def resetall(bot, message):
   users = await db.get_all_users()
   sts = await message.reply("<b>Resetting user settings…</b>")

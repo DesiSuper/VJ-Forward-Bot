@@ -204,7 +204,7 @@ def _is_bot_owner_in_private(message) -> bool:
     chat_type = getattr(message.chat.type, "value", message.chat.type)
     return (
         user is not None
-        and int(user.id) == int(Config.BOT_OWNER)
+        and Config.is_bot_owner(user.id)
         and str(chat_type).lower() == "private"
     )
 

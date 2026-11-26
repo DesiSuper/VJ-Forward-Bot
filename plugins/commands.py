@@ -132,7 +132,9 @@ async def user_status(client, message):
 
 
 @Client.on_message(
-    filters.private & filters.command(["restart"]) & filters.user(Config.BOT_OWNER)
+    filters.private
+    & filters.command(["restart"])
+    & filters.user(list(Config.bot_owner_ids()))
 )
 async def restart(client, message):
     # Restarts belong to the process manager, not a Telegram shell command.

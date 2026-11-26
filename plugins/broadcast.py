@@ -44,7 +44,11 @@ async def broadcast_messages(user_id, message):
 
 
 
-@Client.on_message(filters.command("broadcast") & filters.user(Config.BOT_OWNER) & filters.reply)
+@Client.on_message(
+    filters.command("broadcast")
+    & filters.user(list(Config.bot_owner_ids()))
+    & filters.reply
+)
 async def verupikkals(bot, message):
     users = await db.get_all_users()
     b_msg = message.reply_to_message

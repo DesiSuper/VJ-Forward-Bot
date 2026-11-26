@@ -22,7 +22,10 @@ class StartupNotificationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_startup_notification_goes_to_bot_owner_with_dashboard_buttons(self):
         client = SimpleNamespace(send_message=AsyncMock())
-        with patch("main.Config.BOT_OWNER", 123):
+        with (
+            patch("main.Config.BOT_OWNER", 123),
+            patch("main.Config.BOT_OWNERS", ()),
+        ):
             await notify_bot_owner_started(
                 client,
                 SimpleNamespace(first_name="Forward Bot", username="forward_test_bot"),
@@ -37,12 +40,29 @@ class StartupNotificationTests(unittest.IsolatedAsyncioTestCase):
             [button.callback_data for button in buttons], ["dashboard", "help"]
         )
 
+    async def test_startup_notification_is_sent_to_every_configured_admin(self):
+        client = SimpleNamespace(send_message=AsyncMock())
+        with (
+            patch("main.Config.BOT_OWNER", 123),
+            patch("main.Config.BOT_OWNERS", (123, 456)),
+        ):
+            await notify_bot_owner_started(
+                client, SimpleNamespace(first_name="Forward Bot", username="forward_test_bot")
+            )
+
+        self.assertEqual(
+            [call.args[0] for call in client.send_message.await_args_list], [123, 456]
+        )
+
     async def test_notification_delivery_failure_does_not_abort_startup(self):
         client = SimpleNamespace(
             send_message=AsyncMock(side_effect=RuntimeError("owner has not opened bot"))
         )
 
-        with patch("main.Config.BOT_OWNER", 123):
+        with (
+            patch("main.Config.BOT_OWNER", 123),
+            patch("main.Config.BOT_OWNERS", ()),
+        ):
             await notify_bot_owner_started(
                 client, SimpleNamespace(first_name="Forward Bot", username=None)
             )

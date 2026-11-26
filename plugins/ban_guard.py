@@ -20,7 +20,7 @@ async def block_banned_messages(client, message):
             f"<b>Access to this bot is restricted.</b>\n{escape(str(reason))}"
         )
         raise StopPropagation
-    if int(user.id) != int(Config.BOT_OWNER):
+    if not Config.is_bot_owner(user.id):
         raise StopPropagation
 
 
@@ -33,6 +33,6 @@ async def block_banned_callbacks(client, query):
     if status.get("is_banned") or user.id in temp.BANNED_USERS:
         await query.answer("Access to this bot is restricted.", show_alert=True)
         raise StopPropagation
-    if int(user.id) != int(Config.BOT_OWNER):
+    if not Config.is_bot_owner(user.id):
         await query.answer()
         raise StopPropagation
